@@ -1,4 +1,9 @@
-<!-- components/RegisterForm.vue -->
+<!-- components/RegisterForm.vue — версия под бэкенд /api/accounts/ с РЕДИРЕКТОМ ПО РОЛИ
+- Обязательные поля: first_name, last_name, email, phone (+7XXXXXXXXXX), password, confirm, role
+- username на сервере = email (на фронте отдельное поле не нужно)
+- Автологин через /api/accounts/token/ и загрузка профиля /api/accounts/profile/
+- После успешного входа: executor -> /dashboard/profile, customer -> /dashboard/customer-profile
+-->
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue"
 import { useRouter } from "vue-router"
@@ -11,7 +16,7 @@ const firstName = ref("")
 const lastName  = ref("")
 const email     = ref("")
 const phone     = ref("+7 ")
-const phoneRaw  = ref("+7")
+const phoneRaw  = ref("+7") // отправляем на сервер именно это поле
 const password  = ref("")
 const confirm   = ref("")
 const role      = ref("executor")
@@ -49,17 +54,31 @@ function onPhoneInput(e) {
   let raw = e.target.value.replace(/[^\d+]/g, "")
   if (!raw.startsWith("+")) raw = "+" + raw
   if (!raw.startsWith("+7")) raw = "+7" + raw.replace(/^\+?\d*/, "")
-  raw = raw.slice(0, 12)
+  raw = raw.slice(0, 12) // +7 + 10 цифр => 12 символов
   phoneRaw.value = raw
   phone.value = prettify(raw)
 }
 
 const isPasswordMismatch = computed(() => confirm.value && password.value !== confirm.value)
+const isPhoneInvalid = computed(() => !/^\+7\d{10}$/.test(phoneRaw.value))
+const isEmailInvalid = computed(() => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim()))
 
 async function onRegister() {
   errorMessage.value = ""
   successMessage.value = ""
 
+  if (!firstName.value || !lastName.value) {
+    errorMessage.value = "Укажите имя и фамилию"
+    return
+  }
+  if (isEmailInvalid.value) {
+    errorMessage.value = "Некорректный e-mail"
+    return
+  }
+  if (isPhoneInvalid.value) {
+    errorMessage.value = "Телефон должен быть в формате +7XXXXXXXXXX"
+    return
+  }
   if (isPasswordMismatch.value) {
     errorMessage.value = "Пароли не совпадают"
     return
@@ -67,10 +86,10 @@ async function onRegister() {
 
   loading.value = true
   const payload = {
-    first_name: firstName.value,
-    last_name: lastName.value,
-    email: email.value,
-    phone: phoneRaw.value,
+    first_name: firstName.value.trim(),
+    last_name: lastName.value.trim(),
+    email: email.value.trim().toLowerCase(),
+    phone: phoneRaw.value,              // строго +7XXXXXXXXXX
     password: password.value,
     confirm: confirm.value,
     role: role.value,
@@ -82,28 +101,39 @@ async function onRegister() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     })
-    const data = await response.json()
+
+    const data = await response.json().catch(() => null)
 
     if (response.ok) {
+      // Автологин: username = email
       const loginResp = await fetch("http://localhost:8000/api/accounts/token/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: email.value, password: password.value }),
+        body: JSON.stringify({ username: payload.email, password: password.value }),
       })
-      const loginData = await loginResp.json()
+      const loginData = await loginResp.json().catch(() => null)
 
-      if (loginResp.ok && loginData.access) {
+      if (loginResp.ok && loginData && loginData.access) {
         localStorage.setItem("access", loginData.access)
         localStorage.setItem("refresh", loginData.refresh)
 
+        // Загружаем профиль и РЕДИРЕКТ по роли
         const profileResp = await fetch("http://localhost:8000/api/accounts/profile/", {
           headers: { Authorization: `Bearer ${loginData.access}` },
         })
+
+        let finalRole = role.value // запасной вариант, если профиль не вернётся
         if (profileResp.ok) {
-          const user = await profileResp.json()
-          userStore.setUser(user)
+          const user = await profileResp.json().catch(() => null)
+          if (user) {
+            userStore.setUser(user)
+            if (user.role === "executor" || user.role === "customer") {
+              finalRole = user.role
+            }
+          }
         }
 
+        // Очистка формы
         firstName.value = ""
         lastName.value  = ""
         email.value     = ""
@@ -113,19 +143,30 @@ async function onRegister() {
         confirm.value   = ""
         role.value      = "executor"
 
-        successMessage.value = "Регистрация прошла успешно! Перенаправляем в личный кабинет…"
-        setTimeout(() => router.push("/profile"), 800)
+        // редирект по роли
+        if (finalRole === "executor") {
+          router.push("/dashboard/profile")
+        } else {
+          router.push("/dashboard/customer-profile")
+        }
       } else {
         errorMessage.value = "Регистрация успешна, но вход не выполнен. Попробуйте войти вручную."
       }
     } else {
-      if (typeof data === "object" && data) {
-        errorMessage.value = Object.values(data).flat().join(" ")
+      if (data && typeof data === "object") {
+        // DRF может прислать объект вида {field: ["msg1", "msg2"], ...}
+        const lines = []
+        for (const [k, v] of Object.entries(data)) {
+          const arr = Array.isArray(v) ? v : [String(v)]
+          const label = k === "non_field_errors" || k === "detail" ? "Ошибка" : k
+          lines.push(`${label}: ${arr.join(" ")}`)
+        }
+        errorMessage.value = lines.join(" \n ") || "Ошибка регистрации!"
       } else {
         errorMessage.value = "Ошибка регистрации!"
       }
     }
-  } catch {
+  } catch (e) {
     errorMessage.value = "Нет связи с сервером. Попробуйте позже."
   } finally {
     loading.value = false
@@ -134,12 +175,10 @@ async function onRegister() {
 </script>
 
 <template>
-  <!-- Не превышаем высоту вьюпорта, скрываем переливы -->
   <div class="min-h-[100svh] md:min-h-[100dvh] grid grid-cols-1 md:grid-cols-2 overflow-hidden">
     <!-- Левая колонка: форма (скролл внутри при нехватке высоты) -->
     <div class="h-full flex items-center justify-center px-4 py-6 md:py-0 overflow-y-auto">
       <div class="w-full max-w-[520px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-sm p-6 md:p-8">
-        <!-- Назад -->
         <router-link
           to="/"
           class="inline-flex items-center text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition mb-3"
@@ -153,8 +192,7 @@ async function onRegister() {
         <p class="text-xs text-gray-500 dark:text-gray-400">Давайте создадим вам аккаунт</p>
         <h1 class="text-2xl font-bold tracking-tight text-gray-900 dark:text-white mb-6">Заполните все поля</h1>
 
-        <!-- Сообщения -->
-        <div v-if="errorMessage" class="mb-3 rounded-lg bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300 px-3 py-2 text-sm">
+        <div v-if="errorMessage" class="mb-3 rounded-lg bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300 px-3 py-2 text-sm whitespace-pre-line">
           {{ errorMessage }}
         </div>
         <div v-if="successMessage" class="mb-3 rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300 px-3 py-2 text-sm">
@@ -162,7 +200,6 @@ async function onRegister() {
         </div>
 
         <form @submit.prevent="onRegister" class="space-y-4">
-          <!-- Имя -->
           <div>
             <label class="block text-sm text-gray-600 dark:text-gray-300">Ваше имя</label>
             <input
@@ -174,7 +211,6 @@ async function onRegister() {
             />
           </div>
 
-          <!-- Фамилия -->
           <div>
             <label class="block text-sm text-gray-600 dark:text-gray-300">Ваша фамилия</label>
             <input
@@ -186,9 +222,8 @@ async function onRegister() {
             />
           </div>
 
-          <!-- Email -->
           <div>
-            <label class="block text-sm text-gray-600 dark:text-gray-300">E-mail</label>
+            <label class="block text см text-gray-600 dark:text-gray-300">E-mail</label>
             <input
               v-model="email"
               type="email"
@@ -197,8 +232,8 @@ async function onRegister() {
               class="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-600"
             />
           </div>
+          
 
-          <!-- Телефон -->
           <div>
             <label class="block text-sm text-gray-600 dark:text-gray-300">Телефон</label>
             <input
@@ -208,11 +243,13 @@ async function onRegister() {
               placeholder="+7 999 123-45-67"
               maxlength="18"
               required
-              class="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+              :class="['mt-1 w-full rounded-lg border text-sm px-3 py-2 focus:outline-none focus:ring-2',
+                       isPhoneInvalid ? 'border-red-500 focus:ring-red-500 dark:border-red-500' : 'border-gray-300 dark:border-gray-700 focus:ring-indigo-600',
+                       'bg-white dark:bg-gray-800']"
             />
+            <p v-if="isPhoneInvalid" class="mt-1 text-xs text-red-600 dark:text-red-400">Формат: +7XXXXXXXXXX</p>
           </div>
 
-          <!-- Пароль -->
           <div>
             <label class="block text-sm text-gray-600 dark:text-gray-300">Пароль</label>
             <input
@@ -220,11 +257,10 @@ async function onRegister() {
               type="password"
               placeholder="Пароль"
               required
-              class="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+              class="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text см px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-600"
             />
           </div>
 
-          <!-- Подтверждение -->
           <div>
             <label class="block text-sm text-gray-600 dark:text-gray-300">Повторите пароль</label>
             <input
@@ -238,11 +274,10 @@ async function onRegister() {
               ]"
             />
             <p v-if="isPasswordMismatch" class="mt-1 text-xs text-red-600 dark:text-red-400">
-              Паролы не совпадают
+              Пароли не совпадают
             </p>
           </div>
 
-          <!-- Роль -->
           <div class="flex items-center gap-6 text-sm">
             <label class="inline-flex items-center">
               <input type="radio" value="executor" v-model="role" class="accent-indigo-600" />
@@ -254,7 +289,6 @@ async function onRegister() {
             </label>
           </div>
 
-          <!-- Submit -->
           <button
             type="submit"
             :disabled="loading"
@@ -275,7 +309,7 @@ async function onRegister() {
       </div>
     </div>
 
-    <!-- Правая колонка: фон + слайдер (только на десктопе), занимает ровно высоту вьюпорта -->
+    <!-- Правая колонка: фон + слайдер (только на десктопе) -->
     <div
       class="relative hidden md:block h-full bg-cover bg-center"
       :style="{ backgroundImage: `url('/bg-login4.png')` }"

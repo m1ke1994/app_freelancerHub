@@ -1,3 +1,4 @@
+<!-- components/AppHeader.vue -->
 <template>
   <header class="border-b bg-white dark:bg-gray-900 dark:border-gray-800">
     <div class="mx-auto max-w-7xl h-14 px-4 flex items-center justify-between">
@@ -11,16 +12,51 @@
       <!-- ЦЕНТР (десктоп) -->
       <nav class="hidden sm:flex gap-6 text-sm font-medium">
         <router-link to="/tasks" class="link">Задания</router-link>
-        <router-link to="/services" class="link">Исполнители</router-link>
-        <router-link to="/create-task" class="link">Разместить задания</router-link>
-        <router-link to="/how-it-works" class="link">Как это работает</router-link>
 
+        <!-- Показать для гостя/заказчика, а также для исполнителя если НЕ авторизован -->
+        <router-link v-if="showCustomerLinks" to="/services" class="link">Исполнители</router-link>
+        <router-link v-if="showCustomerLinks" to="/create-task" class="link">Разместить задание</router-link>
+
+        <router-link to="/how-it-works" class="link">Как это работает</router-link>
       </nav>
 
       <!-- ПРАВО -->
       <div class="flex items-center gap-2">
-        <router-link to="/login" class="btn ghost hidden sm:inline">Вход</router-link>
-        <router-link to="/register" class="btn primary hidden sm:inline">Регистрация</router-link>
+        <!-- Гость -->
+        <template v-if="!isAuth">
+          <router-link to="/login" class="btn ghost hidden sm:inline">Вход</router-link>
+          <router-link to="/register" class="btn primary hidden sm:inline">Регистрация</router-link>
+        </template>
+
+        <!-- Авторизован -->
+        <template v-else>
+          <div class="hidden sm:flex items-center gap-3 pr-2">
+            <div class="text-right leading-4">
+              <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {{ fullName || userEmail }}
+              </div>
+              <div v-if="roleChip"
+                   class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
+                          bg-orange-100 text-orange-700 dark:bg-orange-400/20 dark:text-orange-300 mt-0.5">
+                {{ roleChip }}
+              </div>
+            </div>
+
+            <!-- Аватар -->
+            <router-link :to="profileRoute" class="shrink-0">
+              <img
+                :src="avatarUrl || '/avatar-placeholder.png'"
+                alt="Avatar"
+                class="w-9 h-9 rounded-full object-cover bg-gray-200 dark:bg-gray-700"
+              />
+            </router-link>
+
+            <!-- Выйти -->
+            <button @click="onLogout" class="btn ghost">Выйти</button>
+          </div>
+        </template>
+
+        <!-- ИКОНКИ (мобилка) -->
         <ul class="flex gap-2 sm:flex md:flex lg:hidden">
           <li><img src="/Chat.svg" alt="Чат" class="w-5 h-5 hover:scale-105 transition-all duration-300 cursor-pointer" /></li>
           <li><img src="/Favorite.svg" alt="Избранное" class="w-5 h-5 hover:scale-105 transition-all duration-300 cursor-pointer" /></li>
@@ -30,24 +66,21 @@
         <!-- Переключатель темы -->
         <button @click="toggleTheme" class="icon-btn" aria-label="Toggle theme">
           <svg v-if="theme === 'light'" xmlns="http://www.w3.org/2000/svg"
-            class="size-5 text-gray-700 dark:text-gray-200" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="1.5">
-            <path
-              d="M12 3v2M12 19v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M3 12h2M19 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
-              stroke-linecap="round" />
+               class="size-5 text-gray-700 dark:text-gray-200" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.5">
+            <path d="M12 3v2M12 19v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M3 12h2M19 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" stroke-linecap="round"/>
             <circle cx="12" cy="12" r="4" />
           </svg>
-
           <svg v-else xmlns="http://www.w3.org/2000/svg" class="size-5 text-gray-700 dark:text-gray-200"
-            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" />
+               viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" />
           </svg>
         </button>
 
-        <!-- Бургер для мобилки -->
+        <!-- Бургер (мобилка) -->
         <button @click="open = true" class="icon-btn sm:hidden" aria-label="Open menu">
-          <svg xmlns="http://www.w3.org/2000/svg" class="size-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="1.5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="size-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
@@ -56,36 +89,71 @@
 
     <!-- MOBILE SHEET -->
     <transition enter-active-class="duration-150 ease-out" leave-active-class="duration-150 ease-in"
-      enter-from-class="opacity-0" enter-to-class="opacity-100" leave-from-class="opacity-100"
-      leave-to-class="opacity-0">
+               enter-from-class="opacity-0" enter-to-class="opacity-100"
+               leave-from-class="opacity-100" leave-to-class="opacity-0">
       <div v-if="open" class="fixed inset-0 z-50 sm:hidden">
         <div class="absolute inset-0 bg-black/30" @click="open = false"></div>
 
-        <aside
-          class="absolute inset-y-0 right-0 w-full max-w-xs bg-white dark:bg-gray-900 shadow-xl p-6 flex flex-col gap-6">
+        <aside class="absolute inset-y-0 right-0 w-full max-w-xs bg-white dark:bg-gray-900 shadow-xl p-6 flex flex-col gap-6">
           <div class="flex items-center justify-between">
-            <router-link to="/" class="flex items-center gap-2 font-bold text-indigo-600 dark:text-indigo-400"
-              @click="open = false">
+            <router-link to="/" class="flex items-center gap-2 font-bold text-indigo-600 dark:text-indigo-400" @click="open = false">
               <img src="/logo.svg" class="h-7 w-7" alt="FreelanceHub" />
               <span>FreelanceHub</span>
             </router-link>
             <button class="icon-btn" @click="open = false" aria-label="Close menu">
-              <svg xmlns="http://www.w3.org/2000/svg" class="size-6" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="1.5">
+              <svg xmlns="http://www.w3.org/2000/svg" class="size-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
               </svg>
             </button>
           </div>
+
+          <!-- Карточка пользователя -->
+          <div v-if="isAuth" class="flex items-center gap-3">
+            <img :src="avatarUrl || '/avatar-placeholder.png'" alt="Avatar"
+                 class="w-12 h-12 rounded-full object-cover bg-gray-200 dark:bg-gray-700"/>
+            <div class="min-w-0">
+              <div class="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
+                {{ fullName || userEmail }}
+              </div>
+              <div v-if="roleChip"
+                   class="inline-flex items-center mt-1 px-2 py-0.5 rounded-full text-xs font-medium
+                          bg-orange-100 text-orange-700 dark:bg-orange-400/20 dark:text-orange-300">
+                {{ roleChip }}
+              </div>
+            </div>
+          </div>
+
+          <!-- Меню -->
           <nav class="flex flex-col gap-2">
-            <router-link to="/tasks" class="nav-item" @click="open = false">Задания</router-link>
-            <router-link to="/services" class="nav-item" @click="open = false">Исполнители</router-link>
-            <router-link to="/create-task" class="nav-item" @click="open = false">Разместить задание</router-link>
-            <router-link to="/how-it-works" class="nav-item" @click="open = false">Как это работает</router-link>
+            <!-- Меню для ИСПОЛНИТЕЛЯ (только когда он авторизован) -->
+            <template v-if="isAuth && isExecutor">
+              <router-link to="/tasks" class="nav-item" @click="closeSheet">Лента заданий</router-link>
+              <router-link to="/contests" class="nav-item" @click="closeSheet">Конкурсы</router-link>
+              <router-link :to="profileRoute" class="nav-item" @click="closeSheet">Мой кабинет</router-link>
+              <router-link to="/dashboard/orders" class="nav-item" @click="closeSheet">Мои заказы</router-link>
+              <router-link to="/dashboard/settings" class="nav-item" @click="closeSheet">Мои настройки</router-link>
+            </template>
+
+            <!-- Для гостя и заказчика (а также для исполнителя, если он ВЫШЕЛ) -->
+            <template v-else>
+              <router-link to="/tasks" class="nav-item" @click="closeSheet">Задания</router-link>
+              <router-link to="/services" class="nav-item" @click="closeSheet">Исполнители</router-link>
+              <router-link to="/create-task" class="nav-item" @click="closeSheet">Разместить задание</router-link>
+              <router-link to="/how-it-works" class="nav-item" @click="closeSheet">Как это работает</router-link>
+              <router-link v-if="isAuth" :to="profileRoute" class="nav-item" @click="closeSheet">Мой кабинет</router-link>
+            </template>
           </nav>
 
           <div class="mt-auto flex flex-col gap-2">
-            <router-link to="/login" class="btn ghost" @click="open = false">Вход</router-link>
-            <router-link to="/register" class="btn primary" @click="open = false">Регистрация</router-link>
+            <template v-if="!isAuth">
+              <router-link to="/login" class="btn ghost" @click="closeSheet">Вход</router-link>
+              <router-link to="/register" class="btn primary" @click="closeSheet">Регистрация</router-link>
+            </template>
+            <template v-else>
+              <button class="btn ghost text-red-600 hover:text-red-700" @click="handleLogoutMobile">
+                Выйти из аккаунта
+              </button>
+            </template>
           </div>
         </aside>
       </div>
@@ -94,9 +162,41 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useUserStore } from '@/store/userStore'
+
+const router = useRouter()
+const userStore = useUserStore()
+
 const open = ref(false)
 const theme = ref('light')
+
+const isAuth = computed(() => userStore.isAuth)
+const fullName = computed(() => userStore.fullName)
+const userEmail = computed(() => userStore.user?.email || '')
+const role = computed(() => userStore.user?.role || '')
+const isExecutor = computed(() => role.value === 'executor')
+const isCustomer = computed(() => role.value === 'customer')
+const roleChip = computed(() => isExecutor.value ? 'Я исполнитель' : isCustomer.value ? 'Я заказчик' : '')
+const avatarUrl = computed(() => userStore.user?.avatar_url || '')
+const profileRoute = computed(() => isExecutor.value ? '/dashboard/profile' : '/dashboard/customer-profile')
+
+/** Показывать «Исполнители» и «Разместить задание»?
+ *  Да — если пользователь не авторизован, или он заказчик.
+ *  Нет — если это авторизованный исполнитель.
+ */
+const showCustomerLinks = computed(() => !isAuth.value || isCustomer.value)
+
+function onLogout() {
+  userStore.logout()
+  router.push('/')
+}
+function handleLogoutMobile() {
+  onLogout()
+  open.value = false
+}
+function closeSheet() { open.value = false }
 
 onMounted(() => {
   theme.value = document.documentElement.classList.contains('dark') ? 'dark' : 'light'
@@ -109,37 +209,12 @@ function toggleTheme() {
 </script>
 
 <style scoped>
-.link {
-  @apply text-gray-900 dark:text-gray-100 hover:text-indigo-600 dark:hover:text-indigo-400 transition;
-}
-
-.btn {
-  @apply px-3 py-1.5 text-sm font-medium rounded-md transition;
-}
-
-.btn.ghost {
-  @apply hover:bg-gray-100 dark:hover:bg-gray-800;
-}
-
-.btn.primary {
-  @apply bg-indigo-600 text-white hover:bg-indigo-700;
-}
-
-.icon-btn {
-  @apply p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition;
-}
-
-.nav-item {
-  @apply px-3 py-2 rounded-md text-base font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800;
-}
-
-.size-5 {
-  width: 1.25rem;
-  height: 1.25rem;
-}
-
-.size-6 {
-  width: 1.5rem;
-  height: 1.5rem;
-}
+.link { @apply text-gray-900 dark:text-gray-100 hover:text-indigo-600 dark:hover:text-indigo-400 transition; }
+.btn { @apply px-3 py-1.5 text-sm font-medium rounded-md transition; }
+.btn.ghost { @apply hover:bg-gray-100 dark:hover:bg-gray-800; }
+.btn.primary { @apply bg-indigo-600 text-white hover:bg-indigo-700; }
+.icon-btn { @apply p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition; }
+.nav-item { @apply px-3 py-2 rounded-md text-base font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800; }
+.size-5 { width: 1.25rem; height: 1.25rem; }
+.size-6 { width: 1.5rem; height: 1.5rem; }
 </style>

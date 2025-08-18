@@ -10,6 +10,7 @@ const requiredFields = reactive({
   first_name: "",
   last_name: "",
   email: "",
+  phone: "",
 })
 
 /* ===== Форма анкеты ===== */
@@ -173,9 +174,15 @@ onMounted(async () => {
   }
   if (userStore.user) {
     const u = userStore.user
+
+    // опционально: красивое отображение телефона
+    const prettyPhone = (p) =>
+      (p || "").replace(/^(\+7)(\d{3})(\d{3})(\d{2})(\d{2})$/, "$1 $2 $3-$4-$5")
+
     requiredFields.first_name = u.first_name || ""
-    requiredFields.last_name  = u.last_name || ""
-    requiredFields.email      = u.email || ""
+    requiredFields.last_name  = u.last_name  || ""
+    requiredFields.email      = u.email      || ""
+    requiredFields.phone      = prettyPhone(u.phone || "")   // ← добавлено
 
     form.title        = u.title || ""
     form.bio          = u.bio || ""
@@ -194,7 +201,6 @@ onMounted(async () => {
     form.socials.linkedin = u.socials?.linkedin || ""
     form.portfolio    = u.portfolio?.length ? u.portfolio.slice() : form.portfolio
 
-    // занятость: предположим, бэк отдаёт массив строк ISO
     if (Array.isArray(u.busy_dates)) {
       form.busyDates = new Set(u.busy_dates)
     }
@@ -202,6 +208,7 @@ onMounted(async () => {
     avatarPreview.value = u.avatar_url || ""
   }
 })
+
 
 /* ===== Сохранение ===== */
 const saving = ref(false)
@@ -359,13 +366,34 @@ async function onSave() {
                   <LockIcon />
                 </div>
               </div>
-              <div class="sm:col-span-2">
-                <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Email</label>
-                <div class="relative">
-                  <input :value="requiredFields.email" disabled class="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200" />
-                  <LockIcon />
-                </div>
-              </div>
+             <!-- Email -->
+<div class="sm:col-span-2">
+  <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Email</label>
+  <div class="relative">
+    <input
+      :value="requiredFields.email"
+      disabled
+      class="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200"
+    />
+    <LockIcon />
+  </div>
+</div>
+
+<!-- Телефон -->
+<!-- Телефон -->
+<div class="sm:col-span-2">
+  <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Телефон</label>
+  <div class="relative">
+    <input
+      :value="requiredFields.phone"
+      disabled
+      class="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200"
+    />
+    <LockIcon />
+  </div>
+</div>
+
+
             </div>
           </div>
 
@@ -479,32 +507,7 @@ async function onSave() {
             </div>
           </section>
 
-          <!-- Ссылки (collapsible) -->
-          <section class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
-            <button @click="openLinks = !openLinks" class="w-full flex items-center justify-between px-5 py-4">
-              <h3 class="font-semibold text-gray-900 dark:text-white">Ссылки и соцсети</h3>
-              <ChevronIcon :open="openLinks" />
-            </button>
-            <div v-show="openLinks" class="px-5 pb-5">
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div v-for="(l, idx) in form.links" :key="'link-'+idx" class="flex items-center gap-2">
-                  <input v-model="l.label" placeholder="Метка (напр. Сайт)" class="w-36 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600" />
-                  <input v-model="l.url" placeholder="https://…" class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600" />
-                </div>
-              </div>
-
-              <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Telegram</label>
-                  <input v-model="form.socials.telegram" placeholder="@nickname" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600" />
-                </div>
-                <div>
-                  <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">LinkedIn</label>
-                  <input v-model="form.socials.linkedin" placeholder="https://linkedin.com/in/…" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600" />
-                </div>
-              </div>
-            </div>
-          </section>
+        
 
           <!-- Портфолио (collapsible) -->
           <section class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">

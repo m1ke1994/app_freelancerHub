@@ -9,9 +9,10 @@ const routes = [
   { path: '/register', name: 'register', component: () => import('@/view/RegisterPage.vue'), meta: { title: 'Регистрация', guest: true } },
   { path: '/how-it-works', name: 'how-it-works', component: () => import('@/view/HowItWorks.vue'), meta: { title: 'Как это работает', guest: true } },
   { path: '/dashboard/profile', name: 'profile', component: () => import('@/view/FreelancerProfile.vue'), meta: { title: 'Профиль фрилансера' } },
+  { path: '/dashboard/customer-profile', name: 'customer-profile', component: () => import('@/view/CustomerProfile.vue'), meta: { title: 'Анкета заказчика' } },
   { path: '/tips-for-freelancers', name: 'tips-for-freelancers', component: () => import('@/view/TipsForFreelancers.vue'), meta: { title: 'Советы фрилансерам', guest: true } },
   // src/router/index.js
-  { path: '/dashboard/customer-profile', name: 'customer-profile', component: () => import('@/view/CustomerProfile.vue'), meta: { title: 'Анкета заказчика' } }
+
 
 ]
 

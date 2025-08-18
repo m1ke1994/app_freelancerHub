@@ -133,30 +133,33 @@ export const useUserStore = defineStore('user', {
     },
 
     /** Логин (пример) */
-    async login({ email, password }) {
-      this.loading = true
-      this.error = null
-      try {
-        const resp = await fetch(`${baseURL}/api/accounts/token/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password }),
-        })
-        if (!resp.ok) {
-          this.logout()
-          throw new Error('Auth failed')
-        }
-        const data = await resp.json()
-        this._setTokens({ access: data.access, refresh: data.refresh })
-        await this.fetchProfile()
-        return true
-      } catch (e) {
-        this.error = 'Неверные учётные данные'
-        return false
-      } finally {
-        this.loading = false
-      }
-    },
+  /** Логин (SimpleJWT): username = email */
+async login({ email, password }) {
+  this.loading = true
+  this.error = null
+  try {
+    const resp = await fetch(`${baseURL}/api/accounts/token/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // ВАЖНО: SimpleJWT ждёт username, а не email
+      body: JSON.stringify({ username: email, password }),
+    })
+    if (!resp.ok) {
+      this.logout()
+      throw new Error('Auth failed')
+    }
+    const data = await resp.json()
+    this._setTokens({ access: data.access, refresh: data.refresh })
+    await this.fetchProfile()
+    return true
+  } catch (e) {
+    this.error = 'Неверные учётные данные'
+    return false
+  } finally {
+    this.loading = false
+  }
+},
+
 
     /** Обновление анкеты (PATCH JSON) */
     async updateProfile(payload) {
