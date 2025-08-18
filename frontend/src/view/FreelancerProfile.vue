@@ -1,7 +1,7 @@
 <!-- src/view/FreelancerProfile.vue -->
 <script setup>
 import { ref, reactive, computed, onMounted } from "vue"
-import { useUserStore } from "@/store/userStore.js" // проверь путь/регистр файла
+import { useUserStore } from "@/store/userStore.js"
 
 const userStore = useUserStore()
 
@@ -70,13 +70,55 @@ const categoryOptions = [
 /* ===== Аватар ===== */
 const avatarFile = ref(null)
 const avatarPreview = ref("")
-function onAvatarChange(e) {
+const avatarSaving = ref(false)
+const avatarError = ref("")
+const avatarUploading = ref(false)
+
+async function uploadAvatarNow() {
+  if (!avatarFile.value) return
+  try {
+    avatarSaving.value = true
+    // Шлём multipart на /api/accounts/profile/avatar/
+    const updated = await userStore.uploadAvatar(avatarFile.value)
+    // Обновляем превью и user в сторе (экшен уже вернул свежий профиль)
+    avatarPreview.value = updated?.avatar_url || userStore.user?.avatar_url || ""
+    avatarFile.value = null
+  } catch (e) {
+    console.error("Avatar upload failed", e)
+    // здесь можно показать toast при желании
+  } finally {
+    avatarSaving.value = false
+  }
+}
+
+async function onAvatarChange(e) {
+  avatarError.value = ""
   const file = e.target.files?.[0]
   if (!file) return
-  avatarFile.value = file
+
+  // Локальное превью сразу
   const reader = new FileReader()
   reader.onload = (ev) => (avatarPreview.value = ev.target?.result || "")
   reader.readAsDataURL(file)
+
+  try {
+    avatarUploading.value = true
+    // Загрузка на бэк
+    await userStore.uploadAvatar(file)
+
+    // Обновляем профиль из стора/бэка
+    const fresh = (await userStore.fetchProfile?.()) || userStore.user
+    const url = fresh?.avatar_url || userStore.user?.avatar_url || ""
+
+    // Кэш-бастинг, чтобы точно увидеть обновление
+    avatarPreview.value = url ? `${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}` : avatarPreview.value
+  } catch (err) {
+    avatarError.value = err?.message || "Не удалось загрузить аватар."
+  } finally {
+    avatarUploading.value = false
+    // ВАЖНО: разрешаем повторно выбрать тот же файл
+    e.target.value = ""
+  }
 }
 
 /* ===== Навыки / Портфолио / Ссылки ===== */
@@ -175,14 +217,14 @@ onMounted(async () => {
   if (userStore.user) {
     const u = userStore.user
 
-    // опционально: красивое отображение телефона
+    // Красивое отображение телефона
     const prettyPhone = (p) =>
       (p || "").replace(/^(\+7)(\d{3})(\d{3})(\d{2})(\d{2})$/, "$1 $2 $3-$4-$5")
 
     requiredFields.first_name = u.first_name || ""
     requiredFields.last_name  = u.last_name  || ""
     requiredFields.email      = u.email      || ""
-    requiredFields.phone      = prettyPhone(u.phone || "")   // ← добавлено
+    requiredFields.phone      = prettyPhone(u.phone || "")
 
     form.title        = u.title || ""
     form.bio          = u.bio || ""
@@ -209,7 +251,6 @@ onMounted(async () => {
   }
 })
 
-
 /* ===== Сохранение ===== */
 const saving = ref(false)
 const saveSuccess = ref(false)
@@ -222,6 +263,9 @@ async function onSave() {
 
   saving.value = true
   try {
+    // Если НЕ грузим аватар сразу — можно вызвать здесь:
+    // await uploadAvatarNow()
+
     const payload = {
       title: form.title.trim(),
       bio: form.bio.trim(),
@@ -238,16 +282,24 @@ async function onSave() {
       links: form.links,
       socials: form.socials,
       portfolio: form.portfolio,
-      busy_dates: Array.from(form.busyDates), // <= календарь
+      busy_dates: Array.from(form.busyDates),
     }
 
-    // если есть экшн в сторе — используй его:
-    await userStore.updateProfile(payload)
+    // Отправляем PATCH JSON профиля
+    const updated = await userStore.updateProfile(payload)
 
-    // временно обновим локально:
-    userStore.setUser?.({ ...(userStore.user || {}), ...payload, avatar_url: avatarPreview.value })
+    // Обновим локально (на случай если стор не сделал это внутри экшна)
+    userStore.setUser?.({
+      ...(userStore.user || {}),
+      ...updated,
+    })
+
+    // Обновим превью, если вдруг на бэке появился avatar_url
+    avatarPreview.value = userStore.user?.avatar_url || avatarPreview.value
+
     saveSuccess.value = true
   } catch (e) {
+    console.error(e)
     saveError.value = "Не удалось сохранить изменения. Попробуй ещё раз."
   } finally {
     saving.value = false
@@ -261,7 +313,9 @@ async function onSave() {
       <!-- Заголовок -->
       <div class="mb-6">
         <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Анкета фрилансера</h1>
-        <p class="text-gray-600 dark:text-gray-400">Обязательные поля недоступны для редактирования, остальное — заполни для повышения доверия и конверсии.</p>
+        <p class="text-gray-600 dark:text-gray-400">
+          Обязательные поля недоступны для редактирования, остальное — заполни для повышения доверия и конверсии.
+        </p>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-[280px,1fr] gap-6">
@@ -278,8 +332,15 @@ async function onSave() {
                   <path d="M4 20c0-4 4-6 8-6s8 2 8 6" stroke-linecap="round"/>
                 </svg>
               </div>
-              <label class="inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium border border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
-                Загрузить
+
+              <label
+                class="inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium border border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
+              >
+                <svg v-if="avatarSaving" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <circle cx="12" cy="12" r="9" stroke-width="1.5" class="opacity-25"/>
+                  <path d="M12 3a9 9 0 0 1 9 9" stroke-width="1.5"/>
+                </svg>
+                <span v-else>Загрузить</span>
                 <input type="file" accept="image/*" class="hidden" @change="onAvatarChange" />
               </label>
             </div>
@@ -294,7 +355,7 @@ async function onSave() {
             </label>
           </div>
 
-          <!-- Календарь (collapsible — с ChevronIcon) -->
+          <!-- Календарь (collapsible) -->
           <section class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
             <button @click="openCalendar = !openCalendar" class="w-full flex items-center justify-between px-5 py-4">
               <h3 class="font-semibold text-gray-900 dark:text-white">Календарь занятости</h3>
@@ -366,34 +427,30 @@ async function onSave() {
                   <LockIcon />
                 </div>
               </div>
-             <!-- Email -->
-<div class="sm:col-span-2">
-  <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Email</label>
-  <div class="relative">
-    <input
-      :value="requiredFields.email"
-      disabled
-      class="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200"
-    />
-    <LockIcon />
-  </div>
-</div>
 
-<!-- Телефон -->
-<!-- Телефон -->
-<div class="sm:col-span-2">
-  <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Телефон</label>
-  <div class="relative">
-    <input
-      :value="requiredFields.phone"
-      disabled
-      class="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200"
-    />
-    <LockIcon />
-  </div>
-</div>
+              <div class="sm:col-span-2">
+                <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Email</label>
+                <div class="relative">
+                  <input
+                    :value="requiredFields.email"
+                    disabled
+                    class="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200"
+                  />
+                  <LockIcon />
+                </div>
+              </div>
 
-
+              <div class="sm:col-span-2">
+                <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Телефон</label>
+                <div class="relative">
+                  <input
+                    :value="requiredFields.phone"
+                    disabled
+                    class="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200"
+                  />
+                  <LockIcon />
+                </div>
+              </div>
             </div>
           </div>
 
@@ -507,8 +564,6 @@ async function onSave() {
             </div>
           </section>
 
-        
-
           <!-- Портфолио (collapsible) -->
           <section class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
             <button @click="openPortfolio = !openPortfolio" class="w-full flex items-center justify-between px-5 py-4">
@@ -579,4 +634,3 @@ export default {
 <style scoped>
 /* rely on Tailwind; вращение делаем через класс rotate-180 */
 </style>
-

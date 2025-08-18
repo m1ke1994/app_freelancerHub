@@ -152,18 +152,35 @@ export const useUserStore = defineStore('user', {
       return data
     },
 
-    async uploadAvatar(file) {
-      const fd = new FormData()
-      fd.append('avatar', file)
-      const resp = await this._authedFetch(`${baseURL}/api/accounts/profile/avatar/`, {
-        method: 'PATCH',
-        body: fd,
-      })
-      if (!resp.ok) throw new Error('Avatar upload failed')
-      const data = await resp.json()
-      this.user = data
-      return data
-    },
+async uploadAvatar(file) {
+  const fd = new FormData();
+  fd.append('avatar', file);
+
+  const resp = await this._authedFetch(`${baseURL}/api/accounts/profile/avatar/`, {
+    method: 'PATCH',
+    body: fd,
+  });
+
+  // пытаемся прочесть тело вне зависимости от кода
+  const data = await resp.json().catch(() => null);
+
+  if (!resp.ok) {
+    // достаем понятное сообщение
+    const msg =
+      (data && (data.avatar?.[0] || data.detail || data.error || JSON.stringify(data))) ||
+      'Avatar upload failed';
+    throw new Error(msg);
+  }
+
+  // успешно: в data пришёл актуальный профиль — кладём в стор
+  // + небольшой cache-busting на случай, если браузер закешировал картинку
+  if (data?.avatar_url) {
+    data.avatar_url = `${data.avatar_url}${data.avatar_url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+  }
+  this.user = data;
+  return data;
+},
+
 
     // 🔥 РЕГИСТРАЦИЯ: шлём confirm (и, при желании, password2 — но confirm обязателен для бэка)
     async register(payload) {

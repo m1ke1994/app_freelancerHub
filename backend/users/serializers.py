@@ -88,6 +88,22 @@ class AvatarUploadSerializer(serializers.ModelSerializer):
         model = User
         fields = ("avatar",)
 
+    def validate_avatar(self, file):
+        if not file:
+            raise serializers.ValidationError("Файл не передан.")
+        # content_type иногда пустой в dev — это ок, но проверим по возможности
+        ctype = getattr(file, "content_type", "") or ""
+        if ctype and not ctype.startswith("image/"):
+            raise serializers.ValidationError("Загрузите изображение (PNG/JPG).")
+        # лимит размера, чтобы не забивать память
+        if file.size and file.size > 5 * 1024 * 1024:
+            raise serializers.ValidationError("Слишком большой файл (макс 5 МБ).")
+        return file
+
+    class Meta:
+        model = User
+        fields = ("avatar",)
+
 class EmailTokenObtainPairSerializer(serializers.Serializer):
     username = serializers.CharField(required=False, allow_blank=True)
     email = serializers.EmailField(required=False, allow_blank=True)
