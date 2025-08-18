@@ -1,14 +1,13 @@
 // src/store/userStore.js
 import { defineStore } from 'pinia'
 
-const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+export const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 export const useUserStore = defineStore('user', {
   state: () => ({
     user: null,
     loading: false,
     error: null,
-    // храним копию токенов в памяти (источник истины — localStorage)
     access: localStorage.getItem('access') || null,
     refresh: localStorage.getItem('refresh') || null,
   }),
@@ -20,76 +19,56 @@ export const useUserStore = defineStore('user', {
 
   actions: {
     _setTokens({ access, refresh }) {
-      if (access) {
-        this.access = access
-        localStorage.setItem('access', access)
-      }
-      if (refresh) {
-        this.refresh = refresh
-        localStorage.setItem('refresh', refresh)
-      }
+      if (access) { this.access = access; localStorage.setItem('access', access) }
+      if (refresh) { this.refresh = refresh; localStorage.setItem('refresh', refresh) }
     },
-
     _clearTokens() {
       this.access = null
       this.refresh = null
       localStorage.removeItem('access')
       localStorage.removeItem('refresh')
     },
+    setUser(user) { this.user = user },
+    reset() { this.user = null; this.error = null; this._clearTokens() },
+    logout() { this.reset() },
 
-    setUser(user) {
-      this.user = user
-    },
-
-    logout() {
-      this.user = null
-      this._clearTokens()
-    },
-
-    /** Инициализация стора при старте приложения */
     async init() {
+      window.addEventListener('storage', (e) => {
+        if (e.key === 'access' || e.key === 'refresh') {
+          this.access = localStorage.getItem('access')
+          this.refresh = localStorage.getItem('refresh')
+          if (this.access) this.fetchProfile().catch(() => this.reset())
+          else this.user = null
+        }
+      })
       if (this.access && !this.user) {
-        await this.fetchProfile()
+        await this.fetchProfile().catch(() => this.reset())
       }
     },
 
-    /** Рефреш access-токена */
     async refreshAccessToken() {
       if (!this.refresh) throw new Error('No refresh token')
-
       const resp = await fetch(`${baseURL}/api/accounts/token/refresh/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh: this.refresh }),
       })
-
-      if (!resp.ok) {
-        this.logout()
-        throw new Error('Refresh failed')
-      }
-
+      if (!resp.ok) { this.logout(); throw new Error('Refresh failed') }
       const data = await resp.json()
-      if (!data.access) {
-        this.logout()
-        throw new Error('No access in refresh response')
-      }
+      if (!data.access) { this.logout(); throw new Error('No access in refresh response') }
       this._setTokens({ access: data.access })
       return data.access
     },
 
-    /** Базовый helper: делает fetch с авторизацией и 1 попыткой рефреша при 401 */
     async _authedFetch(url, options = {}, tryRefresh = true) {
       const headers = new Headers(options.headers || {})
-      if (!(options.body instanceof FormData)) {
-        // не ставим Content-Type вручную для FormData
+      const isFormData = options.body instanceof FormData
+      if (!isFormData) {
         headers.set('Content-Type', headers.get('Content-Type') || 'application/json')
       }
       if (this.access) headers.set('Authorization', `Bearer ${this.access}`)
-
       const resp = await fetch(url, { ...options, headers })
-
       if (resp.status === 401 && tryRefresh && this.refresh) {
-        // пробуем рефреш и повторяем запрос один раз
         try {
           await this.refreshAccessToken()
           const h2 = new Headers(options.headers || {})
@@ -98,32 +77,25 @@ export const useUserStore = defineStore('user', {
           }
           h2.set('Authorization', `Bearer ${this.access}`)
           return await fetch(url, { ...options, headers: h2 })
-        } catch {
-          this.logout()
-        }
+        } catch { this.logout() }
       }
       return resp
     },
 
-    /** Загрузка профиля */
     async fetchProfile() {
-      if (!this.access) {
-        this.user = null
-        return
-      }
+      if (!this.access) { this.user = null; return }
       this.loading = true
       this.error = null
       try {
         const resp = await this._authedFetch(`${baseURL}/api/accounts/profile/`)
         if (!resp.ok) {
-          // если после рефреша всё ещё ошибка — очищаем
           this.user = null
           if (resp.status === 401) this._clearTokens()
           return
         }
         const data = await resp.json()
         this.user = data
-      } catch (e) {
+      } catch {
         this.user = null
         this._clearTokens()
         this.error = 'Не удалось получить профиль'
@@ -132,67 +104,123 @@ export const useUserStore = defineStore('user', {
       }
     },
 
-    /** Логин (пример) */
-  /** Логин (SimpleJWT): username = email */
-async login({ email, password }) {
-  this.loading = true
-  this.error = null
-  try {
-    const resp = await fetch(`${baseURL}/api/accounts/token/`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      // ВАЖНО: SimpleJWT ждёт username, а не email
-      body: JSON.stringify({ username: email, password }),
-    })
-    if (!resp.ok) {
-      this.logout()
-      throw new Error('Auth failed')
-    }
-    const data = await resp.json()
-    this._setTokens({ access: data.access, refresh: data.refresh })
-    await this.fetchProfile()
-    return true
-  } catch (e) {
-    this.error = 'Неверные учётные данные'
-    return false
-  } finally {
-    this.loading = false
-  }
-},
+    async login({ email, password }) {
+      this.loading = true
+      this.error = null
+      try {
+        const resp = await fetch(`${baseURL}/api/accounts/token/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        })
+        const data = await resp.json().catch(() => ({}))
+        if (!resp.ok) {
+          // аккуратно покажем ответ DRF
+          this.reset()
+          this.error =
+            data?.detail ||
+            (Array.isArray(data?.email) ? data.email.join(' ') : data?.email) ||
+            (Array.isArray(data?.password) ? data.password.join(' ') : data?.password) ||
+            'Неверные учётные данные'
+          return false
+        }
+        this._setTokens({ access: data.access, refresh: data.refresh })
+        await this.fetchProfile()
+        return true
+      } catch {
+        this.error = 'Ошибка соединения'
+        return false
+      } finally {
+        this.loading = false
+      }
+    },
 
+    async loginWithTokens({ access, refresh }) {
+      this._setTokens({ access, refresh })
+      await this.fetchProfile()
+      return !!this.user
+    },
 
-    /** Обновление анкеты (PATCH JSON) */
     async updateProfile(payload) {
-      // payload должен соответствовать твоей DRF-схеме
-      // пример: { title, bio, location, gender, education, status, categories, skills, rate_type, hourly_rate, project_rate, availability, links, socials, portfolio }
       const resp = await this._authedFetch(`${baseURL}/api/accounts/profile/`, {
         method: 'PATCH',
         body: JSON.stringify(payload),
       })
-      if (!resp.ok) {
-        throw new Error('Profile update failed')
-      }
+      if (!resp.ok) throw new Error('Profile update failed')
       const data = await resp.json()
       this.user = data
       return data
     },
 
-    /** Отдельная загрузка аватара (multipart/form-data) */
     async uploadAvatar(file) {
       const fd = new FormData()
       fd.append('avatar', file)
-
       const resp = await this._authedFetch(`${baseURL}/api/accounts/profile/avatar/`, {
         method: 'PATCH',
-        body: fd, // заголовок Content-Type формируется автоматически
+        body: fd,
       })
-      if (!resp.ok) {
-        throw new Error('Avatar upload failed')
-      }
+      if (!resp.ok) throw new Error('Avatar upload failed')
       const data = await resp.json()
-      // предполагаем, что сервер вернёт обновлённый профиль с avatar_url
       this.user = data
       return data
+    },
+
+    // 🔥 РЕГИСТРАЦИЯ: шлём confirm (и, при желании, password2 — но confirm обязателен для бэка)
+    async register(payload) {
+      this.loading = true
+      this.error = null
+      try {
+        const {
+          first_name, last_name, email, phone, role,
+          password, password2,
+        } = payload
+
+        const body = {
+          first_name: (first_name || '').trim(),
+          last_name:  (last_name  || '').trim(),
+          email:      (email      || '').trim().toLowerCase(),
+          phone,
+          role,
+          password,
+          confirm: password2 ?? password, // 👈 ключевое: бэку нужен confirm
+          // можно послать и password2 на будущее, но confirm обязателен:
+          password2: password2 ?? password,
+        }
+
+        const resp = await fetch(`${baseURL}/api/accounts/register/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+
+        const data = await resp.json().catch(() => ({}))
+        if (!resp.ok) {
+          // распарсим DRF-ошибки в удобный текст
+          if (data && typeof data === 'object') {
+            const chunks = []
+            for (const [k, v] of Object.entries(data)) {
+              const arr = Array.isArray(v) ? v : [String(v)]
+              const label = (k === 'non_field_errors' || k === 'detail') ? 'Ошибка' : k
+              chunks.push(`${label}: ${arr.join(' ')}`)
+            }
+            this.error = chunks.join('\n') || 'Ошибка регистрации'
+          } else {
+            this.error = 'Ошибка регистрации'
+          }
+          return false
+        }
+
+        // Автологин после успешной регистрации
+        const ok = await this.login({ email: body.email, password })
+        if (!ok) return false
+
+        return true
+      } catch {
+        this.error = 'Нет связи с сервером'
+        return false
+      } finally {
+        this.loading = false
+      }
     },
   },
 })

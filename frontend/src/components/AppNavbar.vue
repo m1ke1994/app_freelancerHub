@@ -12,11 +12,8 @@
       <!-- ЦЕНТР (десктоп) -->
       <nav class="hidden sm:flex gap-6 text-sm font-medium">
         <router-link to="/tasks" class="link">Задания</router-link>
-
-        <!-- Показать для гостя/заказчика, а также для исполнителя если НЕ авторизован -->
         <router-link v-if="showCustomerLinks" to="/services" class="link">Исполнители</router-link>
         <router-link v-if="showCustomerLinks" to="/create-task" class="link">Разместить задание</router-link>
-
         <router-link to="/how-it-works" class="link">Как это работает</router-link>
       </nav>
 
@@ -96,11 +93,11 @@
 
         <aside class="absolute inset-y-0 right-0 w-full max-w-xs bg-white dark:bg-gray-900 shadow-xl p-6 flex flex-col gap-6">
           <div class="flex items-center justify-between">
-            <router-link to="/" class="flex items-center gap-2 font-bold text-indigo-600 dark:text-indigo-400" @click="open = false">
+            <router-link to="/" class="flex items-center gap-2 font-bold text-indigo-600 dark:text-indigo-400" @click="closeSheet">
               <img src="/logo.svg" class="h-7 w-7" alt="FreelanceHub" />
               <span>FreelanceHub</span>
             </router-link>
-            <button class="icon-btn" @click="open = false" aria-label="Close menu">
+            <button class="icon-btn" @click="closeSheet" aria-label="Close menu">
               <svg xmlns="http://www.w3.org/2000/svg" class="size-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
               </svg>
@@ -125,22 +122,28 @@
 
           <!-- Меню -->
           <nav class="flex flex-col gap-2">
-            <!-- Меню для ИСПОЛНИТЕЛЯ (только когда он авторизован) -->
+            <!-- Для исполнителя -->
             <template v-if="isAuth && isExecutor">
               <router-link to="/tasks" class="nav-item" @click="closeSheet">Лента заданий</router-link>
-              <router-link to="/contests" class="nav-item" @click="closeSheet">Конкурсы</router-link>
               <router-link :to="profileRoute" class="nav-item" @click="closeSheet">Мой кабинет</router-link>
               <router-link to="/dashboard/orders" class="nav-item" @click="closeSheet">Мои заказы</router-link>
               <router-link to="/dashboard/settings" class="nav-item" @click="closeSheet">Мои настройки</router-link>
             </template>
 
-            <!-- Для гостя и заказчика (а также для исполнителя, если он ВЫШЕЛ) -->
+            <!-- Для заказчика -->
+            <template v-else-if="isAuth && isCustomer">
+              <router-link to="/tasks" class="nav-item" @click="closeSheet">Задания</router-link>
+              <router-link to="/services" class="nav-item" @click="closeSheet">Исполнители</router-link>
+              <router-link to="/create-task" class="nav-item" @click="closeSheet">Разместить задание</router-link>
+              <router-link :to="profileRoute" class="nav-item" @click="closeSheet">Мой кабинет</router-link>
+            </template>
+
+            <!-- Для гостя -->
             <template v-else>
               <router-link to="/tasks" class="nav-item" @click="closeSheet">Задания</router-link>
               <router-link to="/services" class="nav-item" @click="closeSheet">Исполнители</router-link>
               <router-link to="/create-task" class="nav-item" @click="closeSheet">Разместить задание</router-link>
               <router-link to="/how-it-works" class="nav-item" @click="closeSheet">Как это работает</router-link>
-              <router-link v-if="isAuth" :to="profileRoute" class="nav-item" @click="closeSheet">Мой кабинет</router-link>
             </template>
           </nav>
 
@@ -162,7 +165,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watchEffect } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/userStore'
 
@@ -172,7 +175,8 @@ const userStore = useUserStore()
 const open = ref(false)
 const theme = ref('light')
 
-const isAuth = computed(() => userStore.isAuth)
+/* ВАЖНО: считаем isAuth от access+user — полностью реактивно */
+const isAuth = computed(() => Boolean(userStore.access && userStore.user))
 const fullName = computed(() => userStore.fullName)
 const userEmail = computed(() => userStore.user?.email || '')
 const role = computed(() => userStore.user?.role || '')
@@ -182,11 +186,17 @@ const roleChip = computed(() => isExecutor.value ? 'Я исполнитель' :
 const avatarUrl = computed(() => userStore.user?.avatar_url || '')
 const profileRoute = computed(() => isExecutor.value ? '/dashboard/profile' : '/dashboard/customer-profile')
 
-/** Показывать «Исполнители» и «Разместить задание»?
- *  Да — если пользователь не авторизован, или он заказчик.
- *  Нет — если это авторизованный исполнитель.
- */
+/* Показывать «Исполнители» и «Разместить задание»?
+   Да — если пользователь не авторизован, или он заказчик.
+   Нет — если это авторизованный исполнитель. */
 const showCustomerLinks = computed(() => !isAuth.value || isCustomer.value)
+
+/* Подстраховка: если есть токен, а user ещё не загружен (например, после F5) — тянем профиль */
+watchEffect(async () => {
+  if (userStore.access && !userStore.user && !userStore.loading) {
+    try { await userStore.fetchProfile() } catch {}
+  }
+})
 
 function onLogout() {
   userStore.logout()
@@ -209,7 +219,7 @@ function toggleTheme() {
 </script>
 
 <style scoped>
-.link { @apply text-gray-900 dark:text-gray-100 hover:text-indigo-600 dark:hover:text-indigo-400 transition; }
+.link { @apply text-gray-900 dark:text-gray-100 hover:text-indigo-600 dark:hover:bg-transparent dark:hover:text-indigo-400 transition; }
 .btn { @apply px-3 py-1.5 text-sm font-medium rounded-md transition; }
 .btn.ghost { @apply hover:bg-gray-100 dark:hover:bg-gray-800; }
 .btn.primary { @apply bg-indigo-600 text-white hover:bg-indigo-700; }

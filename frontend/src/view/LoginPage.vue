@@ -31,22 +31,22 @@ async function onLogin() {
   errorMessage.value = ""
   loading.value = true
   try {
-    const resp = await fetch("http://localhost:8000/api/accounts/token/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: email.value, password: password.value }),
+    const ok = await userStore.login({
+      email: email.value.trim().toLowerCase(),
+      password: password.value,
     })
-    const data = await resp.json()
 
-    if (resp.ok && data.access) {
-      localStorage.setItem("access", data.access)
-      localStorage.setItem("refresh", data.refresh)
-      if (typeof userStore.fetchProfile === "function") {
-        await userStore.fetchProfile()
+    if (ok) {
+      const role = userStore.user?.role
+      if (role === "executor") {
+        router.push("/dashboard/profile")
+      } else if (role === "customer") {
+        router.push("/dashboard/customer-profile")
+      } else {
+        router.push("/")
       }
-      router.push("/profile")
     } else {
-      errorMessage.value = data?.detail || "Неверный логин или пароль."
+      errorMessage.value = userStore.error || "Неверный e-mail или пароль."
     }
   } catch {
     errorMessage.value = "Ошибка соединения с сервером."
@@ -169,7 +169,7 @@ function onGoogleLogin() {
       </div>
     </div>
 
-    <!-- Правая колонка: фон + слайдер (только десктоп), высота = контейнер -->
+    <!-- Правая колонка: фон + слайдер (только десктоп) -->
     <div
       class="relative hidden md:block h-full bg-cover bg-center"
       :style="{ backgroundImage: `url('/bg-login1.png')` }"
