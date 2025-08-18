@@ -242,7 +242,7 @@ async function onSave() {
     }
 
     // если есть экшн в сторе — используй его:
-    // await userStore.updateProfile(payload)
+    await userStore.updateProfile(payload)
 
     // временно обновим локально:
     userStore.setUser?.({ ...(userStore.user || {}), ...payload, avatar_url: avatarPreview.value })
@@ -579,3 +579,4 @@ export default {
 <style scoped>
 /* rely on Tailwind; вращение делаем через класс rotate-180 */
 </style>
+

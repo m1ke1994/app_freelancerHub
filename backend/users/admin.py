@@ -5,11 +5,18 @@ from .models import User
 
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
-    # Группы полей на русском
     fieldsets = (
         ("Основное", {'fields': ('username', 'password')}),
         ("Личная информация", {
             'fields': ('first_name', 'last_name', 'email', 'phone', 'role', 'avatar')
+        }),
+        ("Анкета фрилансера", {
+            'fields': (
+                'title', 'bio', 'location', 'gender', 'education', 'status',
+                'categories', 'skills',
+                'rate_type', 'hourly_rate', 'project_rate', 'availability',
+                'links', 'socials', 'portfolio', 'busy_dates',
+            )
         }),
         ("Права доступа", {
             'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')
@@ -31,7 +38,3 @@ class CustomUserAdmin(UserAdmin):
     list_display = ('id', 'username', 'email', 'phone', 'role', 'is_staff', 'is_active')
     search_fields = ('username', 'email', 'phone')
     ordering = ('id',)
-
-    # Тоже поменяем заголовки в списке
-    def get_fieldsets(self, request, obj=None):
-        return super().get_fieldsets(request, obj)
