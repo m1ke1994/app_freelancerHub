@@ -1,6 +1,6 @@
 <!-- src/view/FreelancerProfile.vue -->
 <script setup>
-import { ref, reactive, computed, onMounted } from "vue"
+import { ref, reactive, computed, onMounted, defineComponent, h } from "vue"
 import { useUserStore } from "@/store/userStore.js"
 
 const userStore = useUserStore()
@@ -41,7 +41,7 @@ const form = reactive({
   portfolio: [{ title: "", url: "" }],
 
   // календарь занятости (массив ISO дат)
-  busyDates: new Set(), // Set<string: 'YYYY-MM-DD'>
+  busyDates: new Set(), // Set<'YYYY-MM-DD'>
 })
 
 /* ===== Справочники ===== */
@@ -67,57 +67,57 @@ const categoryOptions = [
   "Переводы",
 ]
 
-/* ===== Аватар ===== */
-const avatarFile = ref(null)
-const avatarPreview = ref("")
-const avatarSaving = ref(false)
+/* ===== Аватар (исправлено) ===== */
+const avatarPreview = ref("")          // текущее изображение в UI
+const avatarUploading = ref(false)     // индикатор загрузки
 const avatarError = ref("")
-const avatarUploading = ref(false)
-
-async function uploadAvatarNow() {
-  if (!avatarFile.value) return
-  try {
-    avatarSaving.value = true
-    // Шлём multipart на /api/accounts/profile/avatar/
-    const updated = await userStore.uploadAvatar(avatarFile.value)
-    // Обновляем превью и user в сторе (экшен уже вернул свежий профиль)
-    avatarPreview.value = updated?.avatar_url || userStore.user?.avatar_url || ""
-    avatarFile.value = null
-  } catch (e) {
-    console.error("Avatar upload failed", e)
-    // здесь можно показать toast при желании
-  } finally {
-    avatarSaving.value = false
-  }
-}
+let tempBlobUrl = null                 // для revokeObjectURL
 
 async function onAvatarChange(e) {
   avatarError.value = ""
-  const file = e.target.files?.[0]
+  const input = e.target
+  const file = input?.files?.[0]
   if (!file) return
 
-  // Локальное превью сразу
-  const reader = new FileReader()
-  reader.onload = (ev) => (avatarPreview.value = ev.target?.result || "")
-  reader.readAsDataURL(file)
+  // мгновенное локальное превью (blob URL)
+  if (tempBlobUrl) {
+    URL.revokeObjectURL(tempBlobUrl)
+    tempBlobUrl = null
+  }
+  tempBlobUrl = URL.createObjectURL(file)
+  avatarPreview.value = tempBlobUrl
 
   try {
     avatarUploading.value = true
-    // Загрузка на бэк
-    await userStore.uploadAvatar(file)
 
-    // Обновляем профиль из стора/бэка
-    const fresh = (await userStore.fetchProfile?.()) || userStore.user
-    const url = fresh?.avatar_url || userStore.user?.avatar_url || ""
+    // грузим на бэк; если uploadAvatar возвращает профиль — используем его
+    const updated = await userStore.uploadAvatar(file)
 
-    // Кэш-бастинг, чтобы точно увидеть обновление
-    avatarPreview.value = url ? `${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}` : avatarPreview.value
+    const fresh =
+      updated ||
+      (await userStore.fetchProfile?.()) ||
+      userStore.user
+
+    const rawUrl =
+      fresh?.avatar_url ||
+      userStore.user?.avatar_url ||
+      ""
+
+    // принудительно обновляем URL, чтобы обойти кэш
+    if (rawUrl) {
+      const bust = rawUrl.includes("?") ? "&" : "?"
+      avatarPreview.value = `${rawUrl}${bust}t=${Date.now()}`
+    }
   } catch (err) {
     avatarError.value = err?.message || "Не удалось загрузить аватар."
+    // остаёмся на локальном превью
   } finally {
     avatarUploading.value = false
-    // ВАЖНО: разрешаем повторно выбрать тот же файл
-    e.target.value = ""
+    if (input) input.value = "" // разрешаем выбрать тот же файл снова
+    if (tempBlobUrl) {
+      URL.revokeObjectURL(tempBlobUrl)
+      tempBlobUrl = null
+    }
   }
 }
 
@@ -138,11 +138,11 @@ function toggleCategory(cat) {
 }
 
 /* ===== Секции (сворачивание/раскрытие) ===== */
-const openSkills = ref(true)
-const openPayment = ref(true)
-const openLinks = ref(true)
-const openPortfolio = ref(true)
-const openCalendar = ref(true)
+/* Все свёрнуты по умолчанию, как просили (календарь — всегда открыт) */
+const openPublic = ref(false)
+const openSkills = ref(false)
+const openPayment = ref(false)
+const openPortfolio = ref(false)
 
 /* ===== Оплата ===== */
 const rateLabel = computed(() =>
@@ -178,13 +178,12 @@ const calLabel = computed(() => ymToLabel(calYear.value, calMonth.value))
 function daysMatrix(y, m) {
   const first = new Date(y, m, 1)
   const last = new Date(y, m + 1, 0)
-  // В JS неделя начинается с Вск, нам нужна Пн..Вс: сдвиг
   const startOffset = (first.getDay() + 6) % 7 // 0 для Пн
   const total = last.getDate()
   const cells = []
-  for (let i = 0; i < startOffset; i++) cells.push(null) // предыдущие пустые
-  for (let d = 1; d <= total; d++) cells.push(new Date(y, m, d)) // текущий месяц
-  while (cells.length % 7 !== 0) cells.push(null) // добиваем до кратного 7
+  for (let i = 0; i < startOffset; i++) cells.push(null)
+  for (let d = 1; d <= total; d++) cells.push(new Date(y, m, d))
+  while (cells.length % 7 !== 0) cells.push(null)
   return cells
 }
 const calCells = computed(() => daysMatrix(calYear.value, calMonth.value))
@@ -217,7 +216,6 @@ onMounted(async () => {
   if (userStore.user) {
     const u = userStore.user
 
-    // Красивое отображение телефона
     const prettyPhone = (p) =>
       (p || "").replace(/^(\+7)(\d{3})(\d{3})(\d{2})(\d{2})$/, "$1 $2 $3-$4-$5")
 
@@ -263,9 +261,6 @@ async function onSave() {
 
   saving.value = true
   try {
-    // Если НЕ грузим аватар сразу — можно вызвать здесь:
-    // await uploadAvatarNow()
-
     const payload = {
       title: form.title.trim(),
       bio: form.bio.trim(),
@@ -285,17 +280,19 @@ async function onSave() {
       busy_dates: Array.from(form.busyDates),
     }
 
-    // Отправляем PATCH JSON профиля
     const updated = await userStore.updateProfile(payload)
 
-    // Обновим локально (на случай если стор не сделал это внутри экшна)
     userStore.setUser?.({
       ...(userStore.user || {}),
       ...updated,
     })
 
-    // Обновим превью, если вдруг на бэке появился avatar_url
-    avatarPreview.value = userStore.user?.avatar_url || avatarPreview.value
+    // если с бэка прилетел новый avatar_url — обновим превью
+    if (userStore.user?.avatar_url) {
+      const raw = userStore.user.avatar_url
+      const bust = raw.includes("?") ? "&" : "?"
+      avatarPreview.value = `${raw}${bust}t=${Date.now()}`
+    }
 
     saveSuccess.value = true
   } catch (e) {
@@ -305,6 +302,29 @@ async function onSave() {
     saving.value = false
   }
 }
+
+/* ===== Иконка замка для readonly-инпутов ===== */
+const LockIcon = defineComponent({
+  name: "LockIcon",
+  setup() {
+    return () =>
+      h(
+        "svg",
+        {
+          class:
+            "w-4 h-4 absolute right-2 top-1/2 -translate-y-1/2 text-gray-400",
+          viewBox: "0 0 24 24",
+          fill: "none",
+          stroke: "currentColor",
+          "stroke-width": "1.5",
+        },
+        [
+          h("rect", { x: "4", y: "11", width: "16", height: "9", rx: "2" }),
+          h("path", { d: "M8 11V8a4 4 0 0 1 8 0v3" }),
+        ]
+      )
+  },
+})
 </script>
 
 <template>
@@ -336,7 +356,7 @@ async function onSave() {
               <label
                 class="inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium border border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
               >
-                <svg v-if="avatarSaving" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <svg v-if="avatarUploading" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <circle cx="12" cy="12" r="9" stroke-width="1.5" class="opacity-25"/>
                   <path d="M12 3a9 9 0 0 1 9 9" stroke-width="1.5"/>
                 </svg>
@@ -344,6 +364,8 @@ async function onSave() {
                 <input type="file" accept="image/*" class="hidden" @change="onAvatarChange" />
               </label>
             </div>
+
+            <p v-if="avatarError" class="mt-2 text-sm text-red-600">{{ avatarError }}</p>
           </div>
 
           <!-- Доступность -->
@@ -355,61 +377,61 @@ async function onSave() {
             </label>
           </div>
 
-          <!-- Календарь (collapsible) -->
-          <section class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
-            <button @click="openCalendar = !openCalendar" class="w-full flex items-center justify-between px-5 py-4">
-              <h3 class="font-semibold text-gray-900 dark:text-white">Календарь занятости</h3>
-              <ChevronIcon :open="openCalendar" />
-            </button>
-            <div v-show="openCalendar" class="px-5 pb-5">
-              <div class="flex items-center justify-between mb-3">
-                <button class="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800" @click="shiftMonth(-1)" aria-label="prev">
-                  <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 19l-7-7 7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-                <div class="text-sm font-medium text-gray-800 dark:text-gray-200 capitalize">{{ calLabel }}</div>
-                <button class="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800" @click="shiftMonth(1)" aria-label="next">
-                  <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-              </div>
+          <!-- Календарь занятости (всегда открыт) -->
+          <section class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
+            <h3 class="font-semibold text-gray-900 dark:text-white mb-4">Календарь занятости</h3>
 
-              <div class="grid grid-cols-7 text-center text-xs text-gray-500 dark:text-gray-400 mb-1">
-                <div v-for="w in weekDays" :key="w" class="py-1">{{ w }}</div>
-              </div>
+            <div class="flex items-center justify-between mb-3">
+              <button class="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800" @click="shiftMonth(-1)" aria-label="prev">
+                <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M15 19l-7-7 7-7" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              <div class="text-sm font-medium text-gray-800 dark:text-gray-200 capitalize">{{ calLabel }}</div>
+              <button class="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800" @click="shiftMonth(1)" aria-label="next">
+                <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            </div>
 
-              <div class="grid grid-cols-7 gap-1">
-                <div v-for="(cell, idx) in calCells" :key="idx">
-                  <button
-                    v-if="cell"
-                    @click="toggleBusy(cell)"
-                    class="w-full aspect-square rounded-md text-sm
-                           border border-gray-200 dark:border-gray-800
-                           hover:bg-gray-50 dark:hover:bg-gray-800
-                           flex items-center justify-center"
-                    :class="isBusy(cell) ? 'bg-rose-500 text-white hover:bg-rose-600' : 'bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200'"
-                    :aria-pressed="isBusy(cell)"
-                  >
-                    {{ cell.getDate() }}
-                  </button>
-                  <div v-else class="w-full aspect-square"></div>
-                </div>
-              </div>
+            <div class="grid grid-cols-7 text-center text-xs text-gray-500 dark:text-gray-400 mb-1">
+              <div v-for="w in weekDays" :key="w" class="py-1">{{ w }}</div>
+            </div>
 
-              <div class="mt-3 flex items-center justify-between text-sm">
-                <div class="flex items-center gap-2">
-                  <span class="inline-block w-4 h-4 rounded bg-rose-500"></span>
-                  <span class="text-gray-600 dark:text-gray-300">Отмеченные дни — занят</span>
-                </div>
-                <button @click="clearBusy" class="px-3 py-1.5 rounded-md border text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
-                  Очистить
+            <div class="grid grid-cols-7 gap-1">
+              <div v-for="(cell, idx) in calCells" :key="idx">
+                <button
+                  v-if="cell"
+                  @click="toggleBusy(cell)"
+                  class="w-full aspect-square rounded-md text-sm
+                         border border-gray-200 dark:border-gray-800
+                         hover:bg-gray-50 dark:hover:bg-gray-800
+                         flex items-center justify-center"
+                  :class="isBusy(cell) ? 'bg-rose-500 text-white hover:bg-rose-600' : 'bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200'"
+                  :aria-pressed="isBusy(cell)"
+                >
+                  {{ cell.getDate() }}
                 </button>
+                <div v-else class="w-full aspect-square"></div>
               </div>
+            </div>
+
+            <div class="mt-3 flex items-center justify-between text-sm">
+              <div class="flex items-center gap-2">
+                <span class="inline-block w-4 h-4 rounded bg-rose-500"></span>
+                <span class="text-gray-600 dark:text-gray-300">Отмеченные дни — занят</span>
+              </div>
+              <button @click="clearBusy" class="px-3 py-1.5 rounded-md border text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
+                Очистить
+              </button>
             </div>
           </section>
         </aside>
 
         <!-- Правая колонка -->
         <main class="space-y-6">
-          <!-- Read-only поля -->
+          <!-- Read-only поля (без стрелок, всегда открыты) -->
           <div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
             <h3 class="font-semibold text-gray-900 dark:text-white mb-4">Основные данные (из регистрации)</h3>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -454,70 +476,96 @@ async function onSave() {
             </div>
           </div>
 
-          <!-- Публичный профиль -->
-          <div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
-            <h3 class="font-semibold text-gray-900 dark:text-white mb-4">Публичный профиль</h3>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div class="sm:col-span-2">
-                <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Заголовок профиля *</label>
-                <input v-model="form.title" placeholder="Например: Frontend-разработчик (Vue 3)" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600" />
-                <p v-if="errors.title" class="mt-1 text-xs text-red-600">{{ errors.title }}</p>
-              </div>
+          <!-- Публичный профиль (collapsible) -->
+          <section class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+            <button @click="openPublic = !openPublic" class="w-full flex items-center justify-between px-5 py-4">
+              <h3 class="font-semibold text-gray-900 dark:text-white">Публичный профиль</h3>
+              <span class="text-lg">{{ openPublic ? "▲" : "▼" }}</span>
+            </button>
+            <div v-show="openPublic" class="px-5 pb-5">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="sm:col-span-2">
+                  <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Заголовок профиля *</label>
+                  <input v-model="form.title" placeholder="Например: Frontend-разработчик (Vue 3)" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600" />
+                  <p v-if="errors.title" class="mt-1 text-xs text-red-600">{{ errors.title }}</p>
+                </div>
 
-              <div>
-                <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Локация</label>
-                <input v-model="form.location" placeholder="Город или «Удаленно»" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600" />
-              </div>
+                <div>
+                  <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Локация</label>
+                  <input v-model="form.location" placeholder="Город или «Удаленно»" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600" />
+                </div>
 
-              <div>
-                <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Пол</label>
-                <select v-model="form.gender" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600">
-                  <option value="">Не указывать</option>
-                  <option v-for="g in genderOptions" :key="g" :value="g">{{ g }}</option>
-                </select>
-              </div>
+                <div>
+                  <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Пол</label>
+                  <select v-model="form.gender" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                    <option value="">Не указывать</option>
+                    <option v-for="g in genderOptions" :key="g" :value="g">{{ g }}</option>
+                  </select>
+                </div>
 
-              <div>
-                <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Образование</label>
-                <select v-model="form.education" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600">
-                  <option value="">—</option>
-                  <option v-for="e in educationOptions" :key="e" :value="e">{{ e }}</option>
-                </select>
-              </div>
+                <div>
+                  <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Образование</label>
+                  <select v-model="form.education" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                    <option value="">—</option>
+                    <option v-for="e in educationOptions" :key="e" :value="e">{{ e }}</option>
+                  </select>
+                </div>
 
-              <div>
-                <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Статус</label>
-                <select v-model="form.status" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600">
-                  <option v-for="s in statusOptions" :key="s.value" :value="s.value">{{ s.label }}</option>
-                </select>
-              </div>
+                <div>
+                  <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Статус</label>
+                  <select v-model="form.status" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                    <option v-for="s in statusOptions" :key="s.value" :value="s.value">{{ s.label }}</option>
+                  </select>
+                </div>
 
-              <div class="sm:col-span-2">
-                <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">О себе *</label>
-                <textarea v-model="form.bio" rows="4" placeholder="Коротко о ключевой экспертизе, стек, фокус на результат..." class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600"></textarea>
-                <p v-if="errors.bio" class="mt-1 text-xs text-red-600">{{ errors.bio }}</p>
+                <div class="sm:col-span-2">
+                  <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">О себе *</label>
+                  <textarea v-model="form.bio" rows="4" placeholder="Коротко о ключевой экспертизе, стек, фокус на результат..." class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600"></textarea>
+                  <p v-if="errors.bio" class="mt-1 text-xs text-red-600">{{ errors.bio }}</p>
+                </div>
               </div>
             </div>
-          </div>
+          </section>
 
           <!-- Навыки и категории (collapsible) -->
           <section class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
             <button @click="openSkills = !openSkills" class="w-full flex items-center justify-between px-5 py-4">
               <h3 class="font-semibold text-gray-900 dark:text-white">Навыки и категории</h3>
-              <ChevronIcon :open="openSkills" />
+              <span class="text-lg">{{ openSkills ? "▲" : "▼" }}</span>
             </button>
+
             <div v-show="openSkills" class="px-5 pb-5 space-y-4">
               <div>
                 <label class="block text-sm text-gray-600 dark:text-gray-300 mb-2">Навыки</label>
                 <div class="flex gap-2 mb-3">
-                  <input v-model="form.newSkill" @keyup.enter="addSkill" placeholder="Добавить навык и нажать Enter" class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600" />
-                  <button @click="addSkill" class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Добавить</button>
+                  <input
+                    v-model="form.newSkill"
+                    @keyup.enter="addSkill"
+                    placeholder="Добавить навык и нажать Enter"
+                    class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                  />
+                  <button
+                    @click="addSkill"
+                    class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                  >
+                    Добавить
+                  </button>
                 </div>
                 <div class="flex flex-wrap gap-2">
-                  <span v-for="s in form.skills" :key="s" class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                  <span
+                    v-for="s in form.skills"
+                    :key="s"
+                    class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                  >
                     {{ s }}
-                    <button @click="removeSkill(s)" class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700" title="Удалить">
-                      <svg viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 18 18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <button
+                      @click="removeSkill(s)"
+                      class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                      title="Удалить"
+                    >
+                      <svg viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M6 18 18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
                     </button>
                   </span>
                 </div>
@@ -526,8 +574,18 @@ async function onSave() {
               <div>
                 <label class="block text-sm text-gray-600 dark:text-gray-300 mb-2">Категории</label>
                 <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                  <label v-for="cat in categoryOptions" :key="cat" class="flex items-center gap-2 p-2 rounded-lg border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
-                    <input type="checkbox" :value="cat" :checked="form.categories.includes(cat)" @change="toggleCategory(cat)" class="rounded border-gray-300 dark:border-gray-700 text-indigo-600" />
+                  <label
+                    v-for="cat in categoryOptions"
+                    :key="cat"
+                    class="flex items-center gap-2 p-2 rounded-lg border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      :value="cat"
+                      :checked="form.categories.includes(cat)"
+                      @change="toggleCategory(cat)"
+                      class="rounded border-gray-300 dark:border-gray-700 text-indigo-600"
+                    />
                     <span class="text-sm text-gray-800 dark:text-gray-200">{{ cat }}</span>
                   </label>
                 </div>
@@ -539,25 +597,44 @@ async function onSave() {
           <section class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
             <button @click="openPayment = !openPayment" class="w-full flex items-center justify-between px-5 py-4">
               <h3 class="font-semibold text-gray-900 dark:text-white">Оплата</h3>
-              <ChevronIcon :open="openPayment" />
+              <span class="text-lg">{{ openPayment ? "▲" : "▼" }}</span>
             </button>
+
             <div v-show="openPayment" class="px-5 pb-5">
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div class="grid grid-cols-1 см:grid-cols-3 gap-4">
                 <div>
                   <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">Тип</label>
-                  <select v-model="form.rateType" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                  <select
+                    v-model="form.rateType"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                  >
                     <option value="hour">Почасовая</option>
                     <option value="project">За проект</option>
                   </select>
                 </div>
                 <div class="sm:col-span-2">
                   <label class="block text-sm text-gray-600 dark:text-gray-300 mb-1">{{ rateLabel }}</label>
-                  <input v-if="form.rateType === 'hour'"
-                         v-model.number="form.hourlyRate" type="number" min="0" step="50" placeholder="Например, 1500"
-                         class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600" />
-                  <input v-else
-                         v-model.number="form.projectRate" type="number" min="0" step="500" placeholder="Например, 20000"
-                         class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600" />
+
+                  <input
+                    v-if="form.rateType === 'hour'"
+                    v-model.number="form.hourlyRate"
+                    type="number"
+                    min="0"
+                    step="50"
+                    placeholder="Например, 1500"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                  />
+
+                  <input
+                    v-else
+                    v-model.number="form.projectRate"
+                    type="number"
+                    min="0"
+                    step="500"
+                    placeholder="Например, 20000"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                  />
+
                   <p v-if="errors.rate" class="mt-1 text-xs text-red-600">{{ errors.rate }}</p>
                 </div>
               </div>
@@ -568,34 +645,85 @@ async function onSave() {
           <section class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
             <button @click="openPortfolio = !openPortfolio" class="w-full flex items-center justify-between px-5 py-4">
               <h3 class="font-semibold text-gray-900 dark:text-white">Портфолио</h3>
-              <ChevronIcon :open="openPortfolio" />
+              <span class="text-lg">{{ openPortfolio ? "▲" : "▼" }}</span>
             </button>
+
             <div v-show="openPortfolio" class="px-5 pb-5">
               <div class="flex items-center justify-between mb-4">
-                <p class="text-sm text-gray-600 dark:text-gray-400">Добавляй ссылки на кейсы, GitHub-репозитории, деплои.</p>
-                <button @click="addPortfolioRow" class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Добавить</button>
+                <p class="text-sm text-gray-600 dark:text-gray-400">
+                  Добавляй ссылки на кейсы, GitHub-репозитории, деплои.
+                </p>
+                <button
+                  @click="addPortfolioRow"
+                  class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                >
+                  Добавить
+                </button>
               </div>
+
               <div class="space-y-3">
-                <div v-for="(p, i) in form.portfolio" :key="'p-'+i" class="grid grid-cols-1 sm:grid-cols-[1fr,1fr,auto] gap-2">
-                  <input v-model="p.title" placeholder="Заголовок/название проекта" class="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600" />
-                  <input v-model="p.url" placeholder="Ссылка (GitHub/Behance/деплой)" class="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600" />
-                  <button @click="removePortfolioRow(i)" class="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Удалить</button>
+                <div
+                  v-for="(p, i) in form.portfolio"
+                  :key="'p-'+i"
+                  class="grid grid-cols-1 sm:grid-cols-[1fr,1fr,auto] gap-2"
+                >
+                  <input
+                    v-model="p.title"
+                    placeholder="Заголовок/название проекта"
+                    class="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                  />
+                  <input
+                    v-model="p.url"
+                    placeholder="Ссылка (GitHub/Behance/деплой)"
+                    class="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                  />
+                  <button
+                    @click="removePortfolioRow(i)"
+                    class="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+                  >
+                    Удалить
+                  </button>
                 </div>
               </div>
             </div>
           </section>
 
-          <!-- Кнопки -->
-          <div class="flex flex-col sm:flex-row items-center gap-3 justify-end">
-            <p v-if="saveSuccess" class="text-green-600">Сохранено ✅</p>
-            <p v-if="saveError" class="text-red-600">{{ saveError }}</p>
-            <button :disabled="saving" @click="onSave"
-                    class="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-60">
+          <!-- Кнопка сохранения (фиксированные размер и состояния) -->
+          <div class="flex justify-end">
+            <button
+              :disabled="saving"
+              @click="onSave"
+              :class="[
+                'inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full text-white font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed',
+                'min-w-[220px] h-12',
+                saveSuccess
+                  ? 'bg-green-600 hover:bg-green-700'
+                  : (saveError ? 'bg-red-600 hover:bg-red-700' : 'bg-indigo-600 hover:bg-indigo-700')
+              ]"
+              aria-live="polite"
+            >
               <svg v-if="saving" class="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <circle cx="12" cy="12" r="9" stroke-width="1.5" class="opacity-25"/>
                 <path d="M12 3a9 9 0 0 1 9 9" stroke-width="1.5"/>
               </svg>
-              Сохранить изменения
+
+              <template v-else-if="saveSuccess">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                </svg>
+                <span>Сохранено</span>
+              </template>
+
+              <template v-else-if="saveError">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+                <span>Ошибка</span>
+              </template>
+
+              <template v-else>
+                <span>Сохранить изменения</span>
+              </template>
             </button>
           </div>
         </main>
@@ -604,33 +732,6 @@ async function onSave() {
   </section>
 </template>
 
-<script>
-export default {
-  components: {
-    /* маленькая иконка замка для readonly полей */
-    LockIcon: {
-      template: `
-        <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>
-          </svg>
-        </span>`,
-    },
-    /* стрелка для сворачиваемых секций */
-    ChevronIcon: {
-      props: { open: { type: Boolean, default: true } },
-      template: `
-        <span class="inline-flex items-center justify-center w-6 h-6 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-              :class="open ? 'rotate-180' : ''" style="transform-origin:center;">
-          <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </span>`,
-    },
-  },
-}
-</script>
-
 <style scoped>
-/* rely on Tailwind; вращение делаем через класс rotate-180 */
+/* rely on Tailwind */
 </style>

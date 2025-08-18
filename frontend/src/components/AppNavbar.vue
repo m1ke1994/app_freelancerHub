@@ -1,4 +1,55 @@
 <!-- components/AppHeader.vue -->
+<script setup>
+import { ref, computed, watchEffect } from 'vue'
+import { useRouter } from 'vue-router'
+import { useUserStore } from '@/store/userStore'
+import { toggleTheme as toggleThemeUtil } from '@/utils/theme'
+
+const router = useRouter()
+const userStore = useUserStore()
+
+const open = ref(false)
+// Тема: читаем текущее состояние класса на <html>, т.к. оно уже установлено в main.js
+const theme = ref(document.documentElement.classList.contains('dark') ? 'dark' : 'light')
+
+/* Авторизация и данные пользователя */
+const isAuth = computed(() => Boolean(userStore.access && userStore.user))
+const fullName = computed(() => userStore.fullName)
+const userEmail = computed(() => userStore.user?.email || '')
+const isExecutor = computed(() => userStore.user?.role === 'executor')
+const isCustomer = computed(() => userStore.user?.role === 'customer')
+const roleChip = computed(() => (isExecutor.value ? 'Я исполнитель' : isCustomer.value ? 'Я заказчик' : ''))
+const avatarUrl = computed(() => userStore.user?.avatar_url || '')
+const profileRoute = computed(() => (isExecutor.value ? '/dashboard/profile' : '/dashboard/customer-profile'))
+
+/* Показывать «Исполнители» и «Разместить задание» гостю и заказчику */
+const showCustomerLinks = computed(() => !isAuth.value || isCustomer.value)
+
+/* Подстраховка: если есть токен, а профиль ещё не загружен — тянем */
+watchEffect(async () => {
+  if (userStore.access && !userStore.user && !userStore.loading) {
+    try { await userStore.fetchProfile() } catch {}
+  }
+})
+
+function onLogout() {
+  userStore.logout()
+  router.push('/')
+}
+function handleLogoutMobile() {
+  onLogout()
+  open.value = false
+}
+function closeSheet() {
+  open.value = false
+}
+
+function toggleTheme() {
+  // утилита сама пишет в localStorage и ставит класс на <html>, возвращает текущее значение
+  theme.value = toggleThemeUtil()
+}
+</script>
+
 <template>
   <header class="border-b bg-white dark:bg-gray-900 dark:border-gray-800">
     <div class="mx-auto max-w-7xl h-14 px-4 flex items-center justify-between">
@@ -164,59 +215,7 @@
   </header>
 </template>
 
-<script setup>
-import { ref, computed, onMounted, watchEffect } from 'vue'
-import { useRouter } from 'vue-router'
-import { useUserStore } from '@/store/userStore'
 
-const router = useRouter()
-const userStore = useUserStore()
-
-const open = ref(false)
-const theme = ref('light')
-
-/* ВАЖНО: считаем isAuth от access+user — полностью реактивно */
-const isAuth = computed(() => Boolean(userStore.access && userStore.user))
-const fullName = computed(() => userStore.fullName)
-const userEmail = computed(() => userStore.user?.email || '')
-const role = computed(() => userStore.user?.role || '')
-const isExecutor = computed(() => role.value === 'executor')
-const isCustomer = computed(() => role.value === 'customer')
-const roleChip = computed(() => isExecutor.value ? 'Я исполнитель' : isCustomer.value ? 'Я заказчик' : '')
-const avatarUrl = computed(() => userStore.user?.avatar_url || '')
-const profileRoute = computed(() => isExecutor.value ? '/dashboard/profile' : '/dashboard/customer-profile')
-
-/* Показывать «Исполнители» и «Разместить задание»?
-   Да — если пользователь не авторизован, или он заказчик.
-   Нет — если это авторизованный исполнитель. */
-const showCustomerLinks = computed(() => !isAuth.value || isCustomer.value)
-
-/* Подстраховка: если есть токен, а user ещё не загружен (например, после F5) — тянем профиль */
-watchEffect(async () => {
-  if (userStore.access && !userStore.user && !userStore.loading) {
-    try { await userStore.fetchProfile() } catch {}
-  }
-})
-
-function onLogout() {
-  userStore.logout()
-  router.push('/')
-}
-function handleLogoutMobile() {
-  onLogout()
-  open.value = false
-}
-function closeSheet() { open.value = false }
-
-onMounted(() => {
-  theme.value = document.documentElement.classList.contains('dark') ? 'dark' : 'light'
-})
-function toggleTheme() {
-  const root = document.documentElement
-  if (theme.value === 'light') { root.classList.add('dark'); theme.value = 'dark' }
-  else { root.classList.remove('dark'); theme.value = 'light' }
-}
-</script>
 
 <style scoped>
 .link { @apply text-gray-900 dark:text-gray-100 hover:text-indigo-600 dark:hover:bg-transparent dark:hover:text-indigo-400 transition; }

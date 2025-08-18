@@ -4,33 +4,30 @@ import { createPinia } from 'pinia'
 import router from './router'
 import App from './App.vue'
 import './assets/css/tailwind.css'
+import { getInitialTheme, applyTheme, watchSystemTheme } from '@/utils/theme'
 
-// 1) создаём приложение и подключаем плагины
+// 1) Тема: применяем до монтирования (без мигания)
+const initialTheme = getInitialTheme()
+applyTheme(initialTheme)
+watchSystemTheme() // убери, если не нужно реагировать на системную смену
+
+// 2) Создаём приложение и подключаем плагины
 const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
 app.use(router)
 
-// 2) восстанавливаем тему до mount (чтобы не мигало)
-const savedTheme = localStorage.getItem('theme') // 'dark' | 'light'
-const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-const theme = savedTheme || (prefersDark ? 'dark' : 'light')
-document.documentElement.classList.toggle('dark', theme === 'dark')
-
-// 3) инициализируем пользователя (если есть токены) — из твоего userStore
+// 3) Инициализируем пользователя (если есть токены)
 import { useUserStore } from '@/store/userStore'
 const userStore = useUserStore()
 userStore.init?.() // подтянет профиль при наличии access
 
-// 4) дождёмся готовности роутера (корректная начальная навигация)
+// 4) Дождёмся готовности роутера и монтируем
 router.isReady().then(() => {
-  app.mount('#app')
-}).catch(() => {
-  // на крайний случай монтируем всё равно
   app.mount('#app')
 })
 
-// 5) (опционально) глобальная обработка ошибок
+// 5) Глобальная обработка ошибок (только в DEV)
 app.config.errorHandler = (err) => {
   if (import.meta.env.DEV) {
     console.error('[Vue error]', err)
