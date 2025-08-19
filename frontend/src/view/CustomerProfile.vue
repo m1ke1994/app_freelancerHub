@@ -1,141 +1,205 @@
 <!-- src/view/CustomerProfile.vue -->
 <script setup>
-import { ref, reactive, onMounted } from "vue"
-import { useUserStore } from "@/store/userStore.js"
+import { ref, reactive, onMounted, computed } from "vue"
+import { useUserStore } from "@/store/userStore"
+import CustomerIndividualForm from "@/view/CustomerProfile/CustomerIndividualForm.vue"
+import CustomerCompanyForm from "@/view/CustomerProfile/CustomerCompanyForm.vue"
 
 const userStore = useUserStore()
 
-// Обязательные данные из регистрации
-const requiredFields = reactive({
+/* Регистрационные поля (read-only) */
+const required = reactive({
   first_name: "",
   last_name: "",
   email: "",
+  role: "",
 })
 
-// Дополнительные поля
-const form = reactive({
-  company: "",          // Компания или ИП
-  bio: "",              // О себе / о компании
-  location: "",         // Город
-  socials: {
-    telegram: "",
-    linkedin: "",
-  },
-  verified: false,      // Верифицирован как заказчик (флаг, пока для вида)
-  projectsCount: 0,     // Сколько уже сделал заказов
-  rating: null,         // Средняя оценка (если есть)
-  availability: true,   // Принимаю новых исполнителей
-})
+/* Общие вещи профиля */
+const avatar_url = ref("")
+const availability = ref(true)
 
-// Секция сворачивания
-const sections = reactive({
-  about: true,
-  socials: true,
-})
+/* Тип профиля */
+const profileType = ref("individual") // 'individual' | 'company'
 
+/* Загрузка профиля */
 onMounted(async () => {
-  if (userStore.user) {
-    const u = userStore.user
-    requiredFields.first_name = u.first_name || ""
-    requiredFields.last_name  = u.last_name || ""
-    requiredFields.email      = u.email || ""
-
-    form.company   = u.company || ""
-    form.bio       = u.bio || ""
-    form.location  = u.location || ""
-    form.socials.telegram = u.socials?.telegram || ""
-    form.socials.linkedin = u.socials?.linkedin || ""
-    form.projectsCount = u.projects_count ?? 0
-    form.rating        = u.rating ?? null
-  } else {
+  if (!userStore.user) {
     try { await userStore.fetchProfile?.() } catch {}
   }
+  const u = userStore.user || {}
+  required.first_name = u.first_name || ""
+  required.last_name  = u.last_name  || ""
+  required.email      = u.email      || ""
+  required.role       = u.role       || "customer"
+  avatar_url.value    = u.avatar_url || ""
+  availability.value  = u.availability ?? true
+
+  // автоопределение: если уже есть company поля — включим company
+  if (u.company || u.legal_form || u.team_size) profileType.value = "company"
 })
 
+/* Сохранение (главный обработчик) */
 const saving = ref(false)
-const saveSuccess = ref(false)
+const saved  = ref(false)
 
-async function onSave() {
+async function onSaveProfile(payloadFromChild) {
   saving.value = true
-  saveSuccess.value = false
+  saved.value = false
   try {
     const payload = {
-      company: form.company.trim(),
-      bio: form.bio.trim(),
-      location: form.location.trim(),
-      socials: form.socials,
-      availability: !!form.availability,
+      avatar_url: avatar_url.value,
+      availability: !!availability.value,
+      profile_type: profileType.value,
+      ...payloadFromChild, // уникальные поля зависят от формы
     }
-    // здесь PATCH на бэкенд
+
+    // Пример API:
     // await api.patch("/api/customer/profile/", payload)
-    userStore.setUser?.({ ...(userStore.user||{}), ...payload })
-    saveSuccess.value = true
+
+    userStore.setUser?.({ ...(userStore.user || {}), ...payload })
+    saved.value = true
   } finally {
     saving.value = false
+    setTimeout(() => (saved.value = false), 2200)
   }
 }
+
+/* Загрузка аватара */
+async function onAvatarChange(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  // const fd = new FormData(); fd.append("avatar", file)
+  // const res = await api.post("/api/users/upload-avatar/", fd, { headers: {"Content-Type":"multipart/form-data"} })
+  // avatar_url.value = res.data.avatar_url
+
+  // временный превью:
+  avatar_url.value = URL.createObjectURL(file)
+  userStore.setUser?.({ ...(userStore.user || {}), avatar_url: avatar_url.value })
+}
+
+const headerBadgeClass = computed(() =>
+  availability.value
+    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-400/20 dark:text-emerald-300"
+    : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
+)
 </script>
 
 <template>
   <section class="py-8 px-4">
-    <div class="mx-auto max-w-4xl">
-      <h1 class="text-2xl font-bold mb-6 text-gray-900 dark:text-white">
-        Анкета заказчика
-      </h1>
+    <div class="mx-auto max-w-5xl">
+      <!-- Заголовок -->
+      <header class="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Профиль заказчика</h1>
+          <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+            Заполни профиль — исполнителям будет проще понять задачи и условия.
+          </p>
+        </div>
+        <div class="hidden sm:flex items-center gap-2">
+          <span :class="headerBadgeClass" class="px-2.5 py-1 rounded-full text-xs font-semibold">
+            {{ availability ? 'Открыт к предложениям' : 'Временно не ищу' }}
+          </span>
+        </div>
+      </header>
 
-      <!-- Обязательные поля -->
-      <div class="rounded-xl border p-5 mb-6 bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800">
-        <h3 class="font-semibold mb-3 text-gray-900 dark:text-white">Основные данные</h3>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <input :value="requiredFields.first_name" disabled class="px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 border" />
-          <input :value="requiredFields.last_name" disabled class="px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 border" />
-          <input :value="requiredFields.email" disabled class="sm:col-span-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 border" />
+      <!-- Основные данные -->
+      <div class="card">
+        <h3 class="font-semibold text-gray-900 dark:text-white mb-3">Основные данные</h3>
+
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 items-center">
+          <!-- Фото -->
+          <div class="flex flex-col items-center gap-2">
+            <img
+              v-if="avatar_url"
+              :src="avatar_url"
+              alt="Фото профиля"
+              class="w-24 h-24 rounded-full object-cover border border-gray-300 dark:border-gray-700"
+            />
+            <div v-else class="w-24 h-24 rounded-full flex items-center justify-center
+                               bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400
+                               border border-gray-300 dark:border-gray-700">
+              <span class="text-sm">Нет фото</span>
+            </div>
+
+            <label class="cursor-pointer text-xs text-indigo-600 hover:underline dark:text-indigo-400">
+              Загрузить фото
+              <input type="file" accept="image/*" class="hidden" @change="onAvatarChange" />
+            </label>
+          </div>
+
+          <!-- Read-only регистрационные поля -->
+          <input :value="required.first_name" disabled class="inp muted" />
+          <input :value="required.last_name"  disabled class="inp muted" />
+          <input :value="required.email"      disabled class="inp muted" />
+        </div>
+
+        <div class="mt-4 flex items-center justify-between gap-4">
+          <p class="text-xs text-gray-500 dark:text-gray-400">
+            Имя, фамилия и e‑mail редактируются в разделе «Аккаунт». Роль: <b>{{ required.role }}</b>.
+          </p>
+
+          <!-- Переключатель типа профиля -->
+          <div class="flex items-center gap-2 rounded-full bg-gray-100 dark:bg-gray-800 p-1">
+            <button
+              class="switch-btn"
+              :class="profileType === 'individual' ? 'switch-btn--active' : ''"
+              @click="profileType = 'individual'"
+            >
+              Я физ лицо
+            </button>
+            <button
+              class="switch-btn"
+              :class="profileType === 'company' ? 'switch-btn--active' : ''"
+              @click="profileType = 'company'"
+            >
+              Я компания
+            </button>
+          </div>
         </div>
       </div>
 
-      <!-- О себе -->
-      <div class="rounded-xl border p-5 mb-6 bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800">
-        <button @click="sections.about = !sections.about" class="flex justify-between items-center w-full">
-          <h3 class="font-semibold text-gray-900 dark:text-white">О компании/о себе</h3>
-          <span>{{ sections.about ? "▲" : "▼" }}</span>
-        </button>
-        <div v-if="sections.about" class="mt-4 space-y-3">
-          <input v-model="form.company" placeholder="Компания или ИП" class="w-full px-3 py-2 rounded-lg border bg-white dark:bg-gray-900" />
-          <input v-model="form.location" placeholder="Город" class="w-full px-3 py-2 rounded-lg border bg-white dark:bg-gray-900" />
-          <textarea v-model="form.bio" rows="3" placeholder="Расскажите о своей деятельности и опыте заказов" class="w-full px-3 py-2 rounded-lg border bg-white dark:bg-gray-900"></textarea>
-        </div>
-      </div>
+      <!-- Формы -->
+      <CustomerIndividualForm
+        v-if="profileType === 'individual'"
+        :availability="availability"
+        @update:availability="val => availability = val"
+        @submit="onSaveProfile"
+      />
+      <CustomerCompanyForm
+        v-else
+        :availability="availability"
+        @update:availability="val => availability = val"
+        @submit="onSaveProfile"
+      />
 
-      <!-- Соцсети -->
-      <div class="rounded-xl border p-5 mb-6 bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800">
-        <button @click="sections.socials = !sections.socials" class="flex justify-between items-center w-full">
-          <h3 class="font-semibold text-gray-900 dark:text-white">Контакты / соцсети</h3>
-          <span>{{ sections.socials ? "▲" : "▼" }}</span>
-        </button>
-        <div v-if="sections.socials" class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <input v-model="form.socials.telegram" placeholder="@telegram" class="px-3 py-2 rounded-lg border bg-white dark:bg-gray-900" />
-          <input v-model="form.socials.linkedin" placeholder="https://linkedin.com/…" class="px-3 py-2 rounded-lg border bg-white dark:bg-gray-900" />
-        </div>
-      </div>
-
-      <!-- Статистика -->
-      <div class="rounded-xl border p-5 mb-6 bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800">
-        <h3 class="font-semibold mb-3 text-gray-900 dark:text-white">Статистика</h3>
-        <p class="text-gray-700 dark:text-gray-300">Заказов создано: <b>{{ form.projectsCount }}</b></p>
-        <p class="text-gray-700 dark:text-gray-300">Средняя оценка: <b>{{ form.rating ?? "—" }}</b></p>
-        <label class="flex items-center gap-2 mt-3">
-          <input type="checkbox" v-model="form.availability" class="rounded border-gray-300 text-indigo-600" />
-          <span class="text-gray-800 dark:text-gray-200">Принимаю новых исполнителей</span>
-        </label>
-      </div>
-
-      <!-- Кнопки -->
-      <div class="flex justify-end items-center gap-3">
-        <p v-if="saveSuccess" class="text-green-600">Сохранено ✅</p>
-        <button @click="onSave" :disabled="saving" class="px-5 py-3 rounded-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
+      <!-- Кнопка сохранения дубль (на случай, если захочется внизу страницы) -->
+      <div class="mt-6 flex items-center justify-end gap-3">
+        <p v-if="saved" class="text-green-600 dark:text-green-400">Сохранено ✅</p>
+        <button class="btn primary disabled:opacity-50" :disabled="saving" @click="$emit('submit')">
           {{ saving ? "Сохраняем..." : "Сохранить" }}
         </button>
       </div>
     </div>
   </section>
 </template>
+
+<style scoped>
+.card { @apply rounded-2xl border bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 p-5 mb-6; }
+.inp {
+  @apply w-full px-3 py-2 rounded-lg border bg-white text-gray-900 placeholder-gray-400
+         dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-400
+         border-gray-200 dark:border-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500;
+}
+.inp.muted { @apply bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-800; }
+
+.btn { @apply px-5 py-3 rounded-full font-medium transition; }
+.btn.primary { @apply bg-indigo-600 text-white hover:bg-indigo-700; }
+
+.switch-btn {
+  @apply px-3 py-1.5 text-sm rounded-full text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition;
+}
+.switch-btn--active {
+  @apply bg-white text-indigo-700 dark:bg-gray-900 dark:text-indigo-300 shadow;
+}
+</style>
