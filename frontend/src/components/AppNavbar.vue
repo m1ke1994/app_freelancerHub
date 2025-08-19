@@ -9,23 +9,29 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const open = ref(false)
-// Тема: читаем текущее состояние класса на <html>, т.к. оно уже установлено в main.js
 const theme = ref(document.documentElement.classList.contains('dark') ? 'dark' : 'light')
 
-/* Авторизация и данные пользователя */
+/* Авторизация */
 const isAuth = computed(() => Boolean(userStore.access && userStore.user))
 const fullName = computed(() => userStore.fullName)
 const userEmail = computed(() => userStore.user?.email || '')
 const isExecutor = computed(() => userStore.user?.role === 'executor')
 const isCustomer = computed(() => userStore.user?.role === 'customer')
 const roleChip = computed(() => (isExecutor.value ? 'Я исполнитель' : isCustomer.value ? 'Я заказчик' : ''))
-const avatarUrl = computed(() => userStore.user?.avatar_url || '')
-const profileRoute = computed(() => (isExecutor.value ? '/dashboard/profile' : '/dashboard/customer-profile'))
 
-/* Показывать «Исполнители» и «Разместить задание» гостю и заказчику */
+/* Аватар */
+const avatarUrl = computed(() => userStore.user?.avatar_url?.trim() || '')
+const hasAvatar = computed(() => Boolean(avatarUrl.value))
+
+/* Профильный роут */
+const profileRoute = computed(() =>
+  isExecutor.value ? '/dashboard/profile' : '/dashboard/customer-profile'
+)
+
+/* Показывать ссылки */
 const showCustomerLinks = computed(() => !isAuth.value || isCustomer.value)
 
-/* Подстраховка: если есть токен, а профиль ещё не загружен — тянем */
+/* Автоподгрузка профиля */
 watchEffect(async () => {
   if (userStore.access && !userStore.user && !userStore.loading) {
     try { await userStore.fetchProfile() } catch {}
@@ -43,9 +49,7 @@ function handleLogoutMobile() {
 function closeSheet() {
   open.value = false
 }
-
 function toggleTheme() {
-  // утилита сама пишет в localStorage и ставит класс на <html>, возвращает текущее значение
   theme.value = toggleThemeUtil()
 }
 </script>
@@ -90,12 +94,12 @@ function toggleTheme() {
               </div>
             </div>
 
-            <!-- Аватар -->
-            <router-link :to="profileRoute" class="shrink-0">
+            <!-- Аватар только если есть -->
+            <router-link v-if="hasAvatar" :to="profileRoute" class="shrink-0">
               <img
-                :src="avatarUrl || '/avatar-placeholder.png'"
+                :src="avatarUrl"
                 alt="Avatar"
-                class="w-9 h-9 rounded-full object-cover bg-gray-200 dark:bg-gray-700"
+                class="w-9 h-9 rounded-full object-cover"
               />
             </router-link>
 
@@ -157,8 +161,12 @@ function toggleTheme() {
 
           <!-- Карточка пользователя -->
           <div v-if="isAuth" class="flex items-center gap-3">
-            <img :src="avatarUrl || '/avatar-placeholder.png'" alt="Avatar"
-                 class="w-12 h-12 rounded-full object-cover bg-gray-200 dark:bg-gray-700"/>
+            <img
+              v-if="hasAvatar"
+              :src="avatarUrl"
+              alt="Avatar"
+              class="w-12 h-12 rounded-full object-cover"
+            />
             <div class="min-w-0">
               <div class="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
                 {{ fullName || userEmail }}
@@ -173,7 +181,6 @@ function toggleTheme() {
 
           <!-- Меню -->
           <nav class="flex flex-col gap-2">
-            <!-- Для исполнителя -->
             <template v-if="isAuth && isExecutor">
               <router-link to="/tasks" class="nav-item" @click="closeSheet">Лента заданий</router-link>
               <router-link :to="profileRoute" class="nav-item" @click="closeSheet">Мой кабинет</router-link>
@@ -181,7 +188,6 @@ function toggleTheme() {
               <router-link to="/dashboard/settings" class="nav-item" @click="closeSheet">Мои настройки</router-link>
             </template>
 
-            <!-- Для заказчика -->
             <template v-else-if="isAuth && isCustomer">
               <router-link to="/tasks" class="nav-item" @click="closeSheet">Задания</router-link>
               <router-link to="/services" class="nav-item" @click="closeSheet">Исполнители</router-link>
@@ -189,7 +195,6 @@ function toggleTheme() {
               <router-link :to="profileRoute" class="nav-item" @click="closeSheet">Мой кабинет</router-link>
             </template>
 
-            <!-- Для гостя -->
             <template v-else>
               <router-link to="/tasks" class="nav-item" @click="closeSheet">Задания</router-link>
               <router-link to="/services" class="nav-item" @click="closeSheet">Исполнители</router-link>
@@ -215,10 +220,8 @@ function toggleTheme() {
   </header>
 </template>
 
-
-
 <style scoped>
-.link { @apply text-gray-900 dark:text-gray-100 hover:text-indigo-600 dark:hover:bg-transparent dark:hover:text-indigo-400 transition; }
+.link { @apply text-gray-900 dark:text-gray-100 hover:text-indigo-600 dark:hover:text-indigo-400 transition; }
 .btn { @apply px-3 py-1.5 text-sm font-medium rounded-md transition; }
 .btn.ghost { @apply hover:bg-gray-100 dark:hover:bg-gray-800; }
 .btn.primary { @apply bg-indigo-600 text-white hover:bg-indigo-700; }

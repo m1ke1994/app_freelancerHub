@@ -110,38 +110,111 @@ async function onRegister() {
           {{ errorMessage }}
         </div>
 
-        <form @submit.prevent="onRegister" class="space-y-4">
-          <!-- Имя -->
-          <input v-model="firstName" type="text" placeholder="Имя" required class="w-full rounded-lg border px-3 py-2" />
-          <!-- Фамилия -->
-          <input v-model="lastName" type="text" placeholder="Фамилия" required class="w-full rounded-lg border px-3 py-2" />
-          <!-- Email -->
-          <input v-model="email" type="email" placeholder="E-mail" required class="w-full rounded-lg border px-3 py-2" />
-          <!-- Телефон -->
-          <input v-model="phone" @input="onPhoneInput" type="tel" placeholder="+7 999 123-45-67" maxlength="18" required class="w-full rounded-lg border px-3 py-2" />
-          <p v-if="isPhoneInvalid" class="text-xs text-red-600">Формат: +7XXXXXXXXXX</p>
-          <!-- Пароль -->
-          <input v-model="password" type="password" placeholder="Пароль" required class="w-full rounded-lg border px-3 py-2" />
-          <!-- Повтор -->
-          <input v-model="confirm" type="password" placeholder="Повторите пароль" required class="w-full rounded-lg border px-3 py-2" />
-          <p v-if="isPasswordMismatch" class="text-xs text-red-600">Пароли не совпадают</p>
+       <form @submit.prevent="onRegister" class="space-y-4">
+  <!-- Имя -->
+  <input
+    v-model="firstName"
+    type="text"
+    placeholder="Имя"
+    required
+    class="w-full rounded-lg border border-gray-300 px-3 py-2 
+           bg-white text-gray-900 placeholder-gray-400 
+           dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400
+           focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+  />
 
-          <!-- Роль -->
-          <div class="flex items-center gap-6 text-sm">
-            <label class="inline-flex items-center">
-              <input type="radio" value="executor" v-model="role" class="accent-indigo-600" />
-              <span class="ml-2">Я исполнитель</span>
-            </label>
-            <label class="inline-flex items-center">
-              <input type="radio" value="customer" v-model="role" class="accent-indigo-600" />
-              <span class="ml-2">Я заказчик</span>
-            </label>
-          </div>
+  <!-- Фамилия -->
+  <input
+    v-model="lastName"
+    type="text"
+    placeholder="Фамилия"
+    required
+    class="w-full rounded-lg border border-gray-300 px-3 py-2
+           bg-white text-gray-900 placeholder-gray-400
+           dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400
+           focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+  />
 
-          <button type="submit" :disabled="loading" class="w-full rounded-full bg-indigo-600 text-white py-3 hover:bg-indigo-700 disabled:opacity-60">
-            {{ loading ? "Регистрируем..." : "Зарегистрироваться" }}
-          </button>
-        </form>
+  <!-- Email -->
+  <input
+    v-model="email"
+    type="email"
+    placeholder="E-mail"
+    required
+    class="w-full rounded-lg border border-gray-300 px-3 py-2
+           bg-white text-gray-900 placeholder-gray-400
+           dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400
+           focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+  />
+
+  <!-- Телефон -->
+  <input
+    v-model="phone"
+    @input="onPhoneInput"
+    type="tel"
+    placeholder="+7 999 123-45-67"
+    maxlength="18"
+    required
+    class="w-full rounded-lg border border-gray-300 px-3 py-2
+           bg-white text-gray-900 placeholder-gray-400
+           dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400
+           focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+  />
+  <p v-if="isPhoneInvalid" class="text-xs text-gray-600 dark:text-gray-400">
+    Формат: +7XXXXXXXXXX
+  </p>
+
+  <!-- Пароль -->
+  <input
+    v-model="password"
+    type="password"
+    placeholder="Пароль"
+    required
+    class="w-full rounded-lg border border-gray-300 px-3 py-2
+           bg-white text-gray-900 placeholder-gray-400
+           dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400
+           focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+  />
+
+  <!-- Повтор -->
+  <input
+    v-model="confirm"
+    type="password"
+    placeholder="Повторите пароль"
+    required
+    class="w-full rounded-lg border border-gray-300 px-3 py-2
+           bg-white text-gray-900 placeholder-gray-400
+           dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400
+           focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+  />
+  <p v-if="isPasswordMismatch" class="text-xs text-red-600 dark:text-red-400">
+    Пароли не совпадают
+  </p>
+
+  <!-- Роль -->
+  <div class="flex items-center gap-6 text-sm text-gray-700 dark:text-gray-200">
+    <label class="inline-flex items-center">
+      <input type="radio" value="executor" v-model="role" class="accent-indigo-600" />
+      <span class="ml-2">Я исполнитель</span>
+    </label>
+    <label class="inline-flex items-center">
+      <input type="radio" value="customer" v-model="role" class="accent-indigo-600" />
+      <span class="ml-2">Я заказчик</span>
+    </label>
+  </div>
+
+  <!-- Кнопка -->
+  <button
+    type="submit"
+    :disabled="loading"
+    class="w-full rounded-full bg-indigo-600 text-white py-3
+           hover:bg-indigo-700 disabled:opacity-60
+           dark:bg-indigo-500 dark:hover:bg-indigo-400"
+  >
+    {{ loading ? "Регистрируем..." : "Зарегистрироваться" }}
+  </button>
+</form>
+
 
         <p class="text-center text-xs mt-5">
           Уже есть аккаунт?
