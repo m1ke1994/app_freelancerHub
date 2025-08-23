@@ -67,7 +67,7 @@ const categoryOptions = [
   "Переводы",
 ]
 
-/* ===== Аватар (исправлено) ===== */
+/* ===== Аватар ===== */
 const avatarPreview = ref("")          // текущее изображение в UI
 const avatarUploading = ref(false)     // индикатор загрузки
 const avatarError = ref("")
@@ -138,11 +138,10 @@ function toggleCategory(cat) {
 }
 
 /* ===== Секции (сворачивание/раскрытие) ===== */
-/* Все свёрнуты по умолчанию, как просили (календарь — всегда открыт) */
-const openPublic = ref(false)
-const openSkills = ref(false)
-const openPayment = ref(false)
-const openPortfolio = ref(false)
+const openPublic = ref(true)
+const openSkills = ref(true)
+const openPayment = ref(true)
+const openPortfolio = ref(true)
 
 /* ===== Оплата ===== */
 const rateLabel = computed(() =>
@@ -249,15 +248,33 @@ onMounted(async () => {
   }
 })
 
-/* ===== Сохранение ===== */
+/* ===== Сохранение + авто-погасание статуса ===== */
 const saving = ref(false)
 const saveSuccess = ref(false)
 const saveError = ref("")
+let statusTimer = null
+
+function clearStatusAfter(ms = 3000) {
+  if (statusTimer) {
+    clearTimeout(statusTimer)
+    statusTimer = null
+  }
+  statusTimer = setTimeout(() => {
+    saveSuccess.value = false
+    saveError.value = ""
+  }, ms)
+}
 
 async function onSave() {
+  // сброс прошлых статусов
   saveSuccess.value = false
   saveError.value = ""
-  if (!validate()) return
+
+  if (!validate()) {
+    saveError.value = "Заполни обязательные поля"
+    clearStatusAfter()
+    return
+  }
 
   saving.value = true
   try {
@@ -287,7 +304,7 @@ async function onSave() {
       ...updated,
     })
 
-    // если с бэка прилетел новый avatar_url — обновим превью
+    // обновим превью аватарки если появится новый url
     if (userStore.user?.avatar_url) {
       const raw = userStore.user.avatar_url
       const bust = raw.includes("?") ? "&" : "?"
@@ -300,6 +317,7 @@ async function onSave() {
     saveError.value = "Не удалось сохранить изменения. Попробуй ещё раз."
   } finally {
     saving.value = false
+    clearStatusAfter(3000) // 🔔 статус сам погаснет
   }
 }
 
@@ -311,8 +329,7 @@ const LockIcon = defineComponent({
       h(
         "svg",
         {
-          class:
-            "w-4 h-4 absolute right-2 top-1/2 -translate-y-1/2 text-gray-400",
+          class: "w-4 h-4 absolute right-2 top-1/2 -translate-y-1/2 text-gray-400",
           viewBox: "0 0 24 24",
           fill: "none",
           stroke: "currentColor",
@@ -327,16 +344,61 @@ const LockIcon = defineComponent({
 })
 </script>
 
+
 <template>
   <section class="py-8 px-4">
     <div class="mx-auto max-w-5xl">
       <!-- Заголовок -->
-      <div class="mb-6">
-        <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Анкета фрилансера</h1>
-        <p class="text-gray-600 dark:text-gray-400">
-          Обязательные поля недоступны для редактирования, остальное — заполни для повышения доверия и конверсии.
-        </p>
+    <section class="mb-8">
+  <div class="relative overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-700 bg-white/60 dark:bg-gray-800/60 backdrop-blur shadow-sm">
+    <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-500 via-fuchsia-500 to-emerald-500"></div>
+
+    <div class="p-6 md:p-8">
+      <h1 class="text-2xl md:text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+        Анкета фрилансера
+      </h1>
+
+      <p class="mt-2 text-gray-600 dark:text-gray-400">
+        Обязательные поля недоступны для редактирования. Заполни остальное — это повысит доверие и конверсию.
+      </p>
+
+      <div class="mt-5 flex items-start gap-3 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 p-4">
+        <!-- info icon -->
+        <svg xmlns="http://www.w3.org/2000/svg" class="size-5 shrink-0 text-indigo-600 dark:text-indigo-300" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <circle cx="12" cy="12" r="9" stroke-width="1.5"></circle>
+          <path d="M12 8.5h.01M11 11.5h1v4h1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+
+        <div class="text-sm">
+          <p class="font-medium text-indigo-900 dark:text-indigo-100">Обязательные поля</p>
+          <ul class="mt-2 flex flex-wrap gap-2">
+            <li class="inline-flex items-center gap-2 rounded-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-200">
+              <span class="size-1.5 rounded-full bg-indigo-500"></span>
+              Заголовок профиля
+            </li>
+            <li class="inline-flex items-center gap-2 rounded-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-200">
+              <span class="size-1.5 rounded-full bg-indigo-500"></span>
+              О себе
+            </li>
+            <li class="inline-flex items-center gap-2 rounded-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-200">
+              <span class="size-1.5 rounded-full bg-indigo-500"></span>
+              Оплата (ставка)
+            </li>
+            <li class="inline-flex items-center gap-2 rounded-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-200">
+              <span class="size-1.5 rounded-full bg-indigo-500"></span>
+              Образование
+            </li>
+            <li class="inline-flex items-center gap-2 rounded-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-200">
+              <span class="size-1.5 rounded-full bg-indigo-500"></span>
+              Пол
+            </li>
+          </ul>
+        </div>
       </div>
+    </div>
+  </div>
+</section>
+
 
       <div class="grid grid-cols-1 lg:grid-cols-[280px,1fr] gap-6">
         <!-- Левая колонка -->
