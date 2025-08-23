@@ -1,6 +1,10 @@
 <!-- src/view/PostJobWizard.vue -->
 <script setup>
 import { ref, reactive, computed } from "vue"
+import { useUserStore, baseURL } from "@/store/userStore.js"
+
+/* ===== Auth / Store ===== */
+const userStore = useUserStore()
 
 /* Шаги */
 const totalSteps = 4
@@ -38,7 +42,7 @@ const formData = reactive({
   location: "",
   remote: true,
   urgent: false,
-  attachments: [],
+  attachments: [],       // File[]
 })
 
 /* Хелперы */
@@ -60,7 +64,7 @@ function removeSkill(skill) {
 /* Навигация */
 function canProceed() {
   if (currentStep.value === 1) {
-    return !!(formData.title && formData.category && formData.description && formData.description.length >= 10)
+    return !!(formData.title && formData.category && formData.description && formData.description.trim().length >= 10)
   }
   if (currentStep.value === 2) {
     return formData.skills.length > 0
@@ -80,23 +84,149 @@ function prevStep() {
 
 /* Файлы */
 const fileInputRef = ref(null)
-function openFileDialog() {
-  fileInputRef.value?.click()
-}
+function openFileDialog() { fileInputRef.value?.click() }
 function handleFileUpload(e) {
   const files = Array.from(e.target.files || [])
   formData.attachments.push(...files)
-  e.target.value = "" // сброс, чтобы можно было выбрать те же файлы ещё раз
+  e.target.value = "" // сброс выбора
 }
-function removeFile(index) {
-  formData.attachments.splice(index, 1)
+function removeFile(index) { formData.attachments.splice(index, 1) }
+
+/* ====== СТАТУС ОТПРАВКИ / АПИ ====== */
+const submitting = ref(false)
+const submitSuccess = ref(false)
+const submitError = ref("")
+const createdJobId = ref(null)
+let statusTimer = null
+function clearStatusAfter(ms = 3500) {
+  if (statusTimer) clearTimeout(statusTimer)
+  statusTimer = setTimeout(() => {
+    submitSuccess.value = false
+    submitError.value = ""
+  }, ms)
+}
+
+async function authedFetch(url, options = {}) {
+  const headers = new Headers(options.headers || {})
+  const isFormData = options.body instanceof FormData
+  if (!isFormData && !headers.has("Content-Type")) headers.set("Content-Type", "application/json")
+  if (userStore?.access) headers.set("Authorization", `Bearer ${userStore.access}`)
+  const resp = await fetch(url, { ...options, headers })
+  return resp
 }
 
 /* Сабмит */
-function handleSubmit() {
-  // сюда вставишь реальный POST на бэкенд
-  console.log("SUBMIT:", JSON.parse(JSON.stringify(formData)))
-  alert("Задание опубликовано (демо). Смотри консоль.")
+async function handleSubmit() {
+  submitSuccess.value = false
+  submitError.value = ""
+  createdJobId.value = null
+
+  if (!userStore?.isAuth) {
+    submitError.value = "Войдите в систему, чтобы разместить задание."
+    clearStatusAfter()
+    return
+  }
+  if (!userStore.user || userStore.user.role !== "customer") {
+    submitError.value = "Создавать задания может только пользователь с ролью «заказчик»."
+    clearStatusAfter()
+    return
+  }
+  if (!canProceed()) {
+    submitError.value = "Проверьте обязательные поля на предыдущих шагах."
+    clearStatusAfter()
+    return
+  }
+
+  const payload = {
+    title: formData.title.trim(),
+    category: formData.category,
+    description: formData.description.trim(),
+    skills: formData.skills.slice(),
+    budget_type: formData.budgetType,
+    budget_fixed: formData.budgetType === "fixed" ? Number(formData.budgetFixed) : null,
+    budget_min:    formData.budgetType === "range" ? Number(formData.budgetMin) : null,
+    budget_max:    formData.budgetType === "range" ? Number(formData.budgetMax) : null,
+    deadline: formData.deadline.trim(),
+    deadline_type: formData.deadlineType,
+    location: formData.location.trim(),
+    remote: !!formData.remote,
+    urgent: !!formData.urgent,
+  }
+
+  submitting.value = true
+  try {
+    // 1) Создание задания
+    const createResp = await authedFetch(`${baseURL}/api/jobs/`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    })
+
+    if (!createResp.ok) {
+      let data = null
+      try { data = await createResp.json() } catch {}
+      if (createResp.status === 403) {
+        submitError.value = data?.detail || "Недостаточно прав для создания задания."
+      } else if (createResp.status === 400 && data) {
+        const firstKey = Object.keys(data)[0]
+        submitError.value = (typeof data[firstKey] === "string")
+          ? data[firstKey]
+          : Array.isArray(data[firstKey]) ? data[firstKey].join(" ") : "Проверьте заполнение полей."
+      } else {
+        submitError.value = "Не удалось создать задание. Попробуйте позже."
+      }
+      clearStatusAfter()
+      return
+    }
+
+    const created = await createResp.json()
+    createdJobId.value = created?.id
+
+    // 2) Вложения (если есть)
+    if (createdJobId.value && formData.attachments.length > 0) {
+      const fd = new FormData()
+      for (const f of formData.attachments) fd.append("attachments", f)
+
+      const attResp = await authedFetch(`${baseURL}/api/jobs/${createdJobId.value}/attachments/`, {
+        method: "POST",
+        body: fd,
+      })
+
+      if (!attResp.ok) {
+        let detail = "Файлы не удалось загрузить."
+        try { const j = await attResp.json(); detail = j?.detail || detail } catch {}
+        submitError.value = detail + " Задание создано без вложений."
+        clearStatusAfter()
+      }
+    }
+
+    submitSuccess.value = true
+    clearStatusAfter()
+    resetForm()
+    currentStep.value = 4
+  } catch (e) {
+    console.error(e)
+    submitError.value = "Ошибка сети. Проверьте соединение."
+    clearStatusAfter()
+  } finally {
+    submitting.value = false
+  }
+}
+
+function resetForm() {
+  formData.title = ""
+  formData.category = ""
+  formData.description = ""
+  formData.skills = []
+  formData.budgetType = "fixed"
+  formData.budgetFixed = ""
+  formData.budgetMin = ""
+  formData.budgetMax = ""
+  formData.deadline = ""
+  formData.deadlineType = "flexible"
+  formData.location = ""
+  formData.remote = true
+  formData.urgent = false
+  formData.attachments = []
 }
 </script>
 
@@ -111,10 +241,7 @@ function handleSubmit() {
         </div>
       </div>
       <div class="h-2 w-full bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
-        <div
-          class="h-full bg-indigo-600 transition-all"
-          :style="{ width: progress + '%' }"
-        />
+        <div class="h-full bg-indigo-600 transition-all" :style="{ width: progress + '%' }" />
       </div>
     </div>
 
@@ -437,6 +564,17 @@ function handleSubmit() {
                 <p class="text-gray-500 dark:text-gray-400">Убедитесь, что все данные указаны верно</p>
               </div>
 
+              <!-- Статус отправки -->
+              <div v-if="submitting || submitSuccess || submitError" class="rounded-lg p-3"
+                   :class="submitting ? 'bg-indigo-50 dark:bg-indigo-900/20' : (submitSuccess ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20')">
+                <p class="text-sm"
+                   :class="submitting ? 'text-indigo-700 dark:text-indigo-200' : (submitSuccess ? 'text-green-700 dark:text-green-200' : 'text-red-700 dark:text-red-200')">
+                  <template v-if="submitting">Отправляем…</template>
+                  <template v-else-if="submitSuccess">Готово! Задание опубликовано<span v-if="createdJobId"> (ID: {{ createdJobId }})</span>.</template>
+                  <template v-else>{{ submitError }}</template>
+                </p>
+              </div>
+
               <div class="space-y-6">
                 <!-- Загрузка файлов -->
                 <div class="space-y-4">
@@ -478,7 +616,7 @@ function handleSubmit() {
                         :key="idx"
                         class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded"
                       >
-                        <span class="text-sm text-gray-700 dark:text-gray-200">{{ file.name }}</span>
+                        <span class="text-sm text-gray-700 dark:text-gray-200 truncate max-w-[70%]">{{ file.name }}</span>
                         <button
                           type="button"
                           @click="removeFile(idx)"
@@ -557,7 +695,7 @@ function handleSubmit() {
               </div>
             </div>
 
-            <!-- Навигация -->
+            <!-- ЕДИНАЯ НАВИГАЦИЯ ДЛЯ ВСЕХ ШАГОВ -->
             <div class="flex items-center justify-between pt-6 mt-6 border-t border-gray-200 dark:border-gray-800">
               <button
                 type="button"
@@ -585,14 +723,36 @@ function handleSubmit() {
                 <button
                   type="button"
                   @click="handleSubmit"
-                  :disabled="!canProceed()"
-                  class="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium
-                         hover:bg-indigo-700 disabled:opacity-60"
+                  :disabled="submitting"
+                  :class="[
+                    'inline-flex items-center gap-2 px-5 py-3 rounded-full text-white font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed',
+                    'min-w-[220px] h-12',
+                    submitting ? 'bg-indigo-500' : (submitSuccess ? 'bg-green-600 hover:bg-green-700' : (submitError ? 'bg-red-600 hover:bg-red-700' : 'bg-indigo-600 hover:bg-indigo-700'))
+                  ]"
                 >
-                  Опубликовать задание →
+                  <svg v-if="submitting" class="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <circle cx="12" cy="12" r="9" stroke-width="1.5" class="opacity-25"/>
+                    <path d="M12 3a9 9 0 0 1 9 9" stroke-width="1.5"/>
+                  </svg>
+                  <template v-else-if="submitSuccess">
+                    <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                    </svg>
+                    <span>Опубликовано</span>
+                  </template>
+                  <template v-else-if="submitError">
+                    <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                    <span>Ошибка</span>
+                  </template>
+                  <template v-else>
+                    <span>Опубликовать задание →</span>
+                  </template>
                 </button>
               </template>
             </div>
+            <!-- /ЕДИНАЯ НАВИГАЦИЯ -->
           </div>
         </div>
       </div>
