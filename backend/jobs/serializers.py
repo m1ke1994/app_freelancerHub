@@ -5,19 +5,16 @@ from .models import Job, JobAttachment
 
 class JobSerializer(serializers.ModelSerializer):
     """
-    Сериализатор задания под клиентский визард (PostJobWizard.vue).
+    Сериализатор задания под клиентский визард.
     Поддерживает оба типа бюджета и массив навыков.
     """
-
-    # skills у нас JSONField(list[str]) — проверим, что это список строк
     skills = serializers.ListField(
         child=serializers.CharField(max_length=64),
         required=False,
         allow_empty=True
     )
-
-    # Отдаём attachments в ответе как список объектов (id, url, name)
     attachments = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Job
@@ -41,10 +38,19 @@ class JobSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "attachments",
+            # новое:
+            "status",
+            "canceled_at",
+            "canceled_reason",
         ]
-        read_only_fields = ["id", "owner", "is_active", "created_at", "updated_at", "attachments"]
+        read_only_fields = [
+            "id", "owner", "is_active", "created_at", "updated_at",
+            "attachments", "status", "canceled_at", "canceled_reason",
+        ]
 
-    # Плоская валидация: логика совпадает с canProceed() в визарде
+    def get_status(self, obj: Job):
+        return obj.status
+
     def validate(self, attrs):
         title = attrs.get("title", getattr(self.instance, "title", None))
         category = attrs.get("category", getattr(self.instance, "category", None))
@@ -54,7 +60,6 @@ class JobSerializer(serializers.ModelSerializer):
         budget_min = attrs.get("budget_min", getattr(self.instance, "budget_min", None))
         budget_max = attrs.get("budget_max", getattr(self.instance, "budget_max", None))
 
-        # шаг 1 — обязательные поля
         if not title:
             raise serializers.ValidationError({"title": _("Укажите название задания.")})
         if not category:
@@ -62,7 +67,6 @@ class JobSerializer(serializers.ModelSerializer):
         if not description or len(description.strip()) < 10:
             raise serializers.ValidationError({"description": _("Опишите задание подробнее (минимум 10 символов).")})
 
-        # шаг 2 — навыки
         skills = attrs.get("skills", getattr(self.instance, "skills", []))
         if not isinstance(skills, list):
             raise serializers.ValidationError({"skills": _("Навыки должны быть списком строк.")})
@@ -70,7 +74,6 @@ class JobSerializer(serializers.ModelSerializer):
             if not isinstance(s, str) or not s.strip():
                 raise serializers.ValidationError({"skills": _("Каждый навык должен быть непустой строкой.")})
 
-        # шаг 3 — бюджет
         if budget_type == Job.BudgetType.FIXED:
             if budget_fixed in (None, ""):
                 raise serializers.ValidationError({"budget_fixed": _("Укажите фиксированный бюджет.")})
@@ -80,7 +83,6 @@ class JobSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"budget_fixed": _("Бюджет должен быть числом.")})
             if bf <= 0:
                 raise serializers.ValidationError({"budget_fixed": _("Бюджет должен быть положительным числом.")})
-            # очистим диапазонные поля
             attrs["budget_min"] = None
             attrs["budget_max"] = None
 
@@ -96,7 +98,6 @@ class JobSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"budget_min": _("Значения бюджета должны быть > 0.")})
             if mn > mx:
                 raise serializers.ValidationError({"budget_min": _("Минимум не может быть больше максимума.")})
-            # очистим фиксированное поле
             attrs["budget_fixed"] = None
 
         else:
@@ -118,8 +119,8 @@ class JobSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         """
-        Принудительно проставляем владельца из request.user и
-        не даём создавать задания не-аутентифицированным и не-customer.
+        Проставляем владельца из request.user.
+        Создавать может только authenticated customer.
         """
         request = self.context.get("request")
         user = getattr(request, "user", None)
@@ -131,7 +132,6 @@ class JobSerializer(serializers.ModelSerializer):
         if role != "customer":
             raise serializers.ValidationError({"detail": _("Создавать задания может только пользователь с ролью заказчик.")})
 
-        # На всякий случай запрещаем передавать owner в теле запроса
         validated_data.pop("owner", None)
         validated_data["owner"] = user
         return super().create(validated_data)
@@ -153,7 +153,6 @@ class JobAttachmentSerializer(serializers.ModelSerializer):
         return None
 
     def create(self, validated_data):
-        # Сохраняем оригинальное имя файла
         f = validated_data.get("file")
         if f and hasattr(f, "name"):
             validated_data["original_name"] = f.name

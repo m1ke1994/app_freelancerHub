@@ -226,8 +226,8 @@ async function onRegister() {
     <!-- Правая колонка -->
     <div class="relative hidden md:block h-full bg-cover bg-center" :style="{ backgroundImage: `url('/bg-login4.png')` }">
       <div class="absolute inset-0 bg-gradient-to-br from-indigo-600/40 to-indigo-900/40"></div>
-      <div class="absolute bottom-10 left-1/2 -translate-x-1/2 w-[min(560px,90%)] bg-white/90 backdrop-blur rounded-xl p-4 shadow-lg">
-        <p>{{ slides[currentIndex] }}</p>
+      <div class="absolute bottom-10 left-1/2 -translate-x-1/2 w-[min(560px,90%)] bg-white/20 backdrop-blur rounded-xl p-4 shadow-lg">
+        <p class="text-gray-700">{{ slides[currentIndex] }}</p>
       </div>
     </div>
   </div>

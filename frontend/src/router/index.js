@@ -14,8 +14,8 @@ const routes = [
   // приватные
   { path: '/dashboard/profile', name: 'profile', component: () => import('@/view/FreelancerProfile.vue'), meta: { title: 'Профиль фрилансера', auth: true } },
   { path: '/dashboard/customer-profile', name: 'customer-profile', component: () => import('@/view/CustomerProfile.vue'), meta: { title: 'Анкета заказчика', auth: true } },
-
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/view/NotFound.vue'), meta: { title: 'Страница не найдена', guest: true } },
+    { path: '/dashboard/my-tasks', name: 'MyAsignments', component: () => import('@/view/Customer/MyAsignments.vue'), meta: { title: 'мои задания', auth: true } },
 ]
 
 const router = createRouter({

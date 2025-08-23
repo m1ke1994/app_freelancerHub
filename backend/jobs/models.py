@@ -1,10 +1,10 @@
-# jobs/models.py
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-# Если в проекте используется кастомная модель пользователя — берём из настроек.
 User = settings.AUTH_USER_MODEL
+
 
 class Job(models.Model):
     class BudgetType(models.TextChoices):
@@ -15,7 +15,6 @@ class Job(models.Model):
         FLEXIBLE = 'flexible', _('Гибкий')
         STRICT = 'strict', _('Строгий')
 
-    # Для категорий возьмём фиксированный набор из клиента (можно расширять в админке)
     CATEGORIES = [
         ("Веб-разработка", "Веб-разработка"),
         ("Мобильные приложения", "Мобильные приложения"),
@@ -29,14 +28,15 @@ class Job(models.Model):
         User,
         on_delete=models.CASCADE,
         related_name='jobs',
-        verbose_name=_('Владелец')
+        verbose_name=_('Владелец'),
+        db_index=True,
     )
 
     title = models.CharField(_('Название'), max_length=200)
     category = models.CharField(_('Категория'), max_length=64, choices=CATEGORIES)
     description = models.TextField(_('Описание'))
 
-    # skills будем хранить как JSON-массив строк, чтобы не требовать PostgreSQL ArrayField
+    # JSON-массив строк
     skills = models.JSONField(_('Навыки'), default=list, blank=True)
 
     budget_type = models.CharField(
@@ -61,10 +61,14 @@ class Job(models.Model):
     remote = models.BooleanField(_('Удалённо'), default=True)
     urgent = models.BooleanField(_('Срочное'), default=False)
 
-    # Прочее
-    created_at = models.DateTimeField(_('Создано'), auto_now_add=True)
-    updated_at = models.DateTimeField(_('Обновлено'), auto_now=True)
+    # Статусы
     is_active = models.BooleanField(_('Активно'), default=True)
+    canceled_at = models.DateTimeField(_('Отменено в'), null=True, blank=True)
+    canceled_reason = models.CharField(_('Причина отмены'), max_length=255, blank=True)
+
+    # Служебные
+    created_at = models.DateTimeField(_('Создано'), auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(_('Обновлено'), auto_now=True)
 
     class Meta:
         ordering = ['-created_at']
@@ -74,18 +78,32 @@ class Job(models.Model):
     def __str__(self):
         return f'#{self.pk} {self.title[:50]}'
 
+    @property
+    def status(self) -> str:
+        """
+        Для фронта: 'pending' | 'canceled_by_customer'
+        (при необходимости можно расширить до in_progress/completed и т.п.)
+        """
+        return 'pending' if self.is_active else 'canceled_by_customer'
+
+    def cancel(self, reason: str = ""):
+        """Отменить задание владельцем."""
+        self.is_active = False
+        self.canceled_at = timezone.now()
+        self.canceled_reason = (reason or "")[:255]
+        self.save(update_fields=['is_active', 'canceled_at', 'canceled_reason', 'updated_at'])
+
     def clean(self):
         """
-        Бизнес-валидация на уровне модели (дополнительно к сериализатору):
-        - Если budget_type=fixed, то должен быть указан budget_fixed
-        - Если budget_type=range, то должны быть указаны budget_min и budget_max и min<=max
+        Бизнес-валидация:
+        - FIXED → требуется budget_fixed
+        - RANGE → требуются budget_min/budget_max и min<=max
         """
         from django.core.exceptions import ValidationError
 
         if self.budget_type == self.BudgetType.FIXED:
             if not self.budget_fixed:
                 raise ValidationError(_('Для фиксированного бюджета необходимо указать "budget_fixed".'))
-            # обнулим диапазонные поля
             self.budget_min = None
             self.budget_max = None
 
@@ -94,7 +112,6 @@ class Job(models.Model):
                 raise ValidationError(_('Для диапазона необходимо указать "budget_min" и "budget_max".'))
             if self.budget_min > self.budget_max:
                 raise ValidationError(_('Значение "budget_min" не может быть больше "budget_max".'))
-            # обнулим фиксированное поле
             self.budget_fixed = None
 
 
