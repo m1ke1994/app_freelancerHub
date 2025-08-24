@@ -7,15 +7,15 @@ from pathlib import Path
 import os
 from datetime import timedelta
 
-# --- Paths ---
+# === Paths ===
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# --- Security ---
+# === Security ===
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-insecure-change-me")
 DEBUG = True  # PROD: False
 ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
 
-# --- Apps ---
+# === Applications ===
 INSTALLED_APPS = [
     # Django core
     "django.contrib.admin",
@@ -26,26 +26,25 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
 
     # 3rd-party
-    "rest_framework",
     "corsheaders",
-    "jobs",
-    # Local
+    "rest_framework",
+    "rest_framework_simplejwt",  # для JWT auth classes
+    # Local apps
     "users",
+    "jobs",
 ]
 
-# --- CORS (dev, Vite 5173) ---
-# Лучше явно перечислить фронтовые Origin, чем allow_all.
+# === CORS (dev: Vite на 5173) ===
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
-# Если будешь стучаться с другого порта/домена — добавь сюда.
-# Если всё же нужно открыть всем в DEV, закомментируй выше и включи:
-# CORS_ALLOW_ALL_ORIGINS = True
+# Если нужны куки/авторизация через fetch с credentials:
+CORS_ALLOW_CREDENTIALS = True
 
-# --- Middleware ---
+# === Middleware ===
 MIDDLEWARE = [
-    "corsheaders.middleware.CorsMiddleware",  # ставим максимально высоко
+    "corsheaders.middleware.CorsMiddleware",  # важно: как можно выше
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -57,7 +56,7 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = "config.urls"
 
-# --- Templates ---
+# === Templates ===
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
@@ -75,7 +74,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-# --- Database ---
+# === Database ===
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
@@ -83,7 +82,7 @@ DATABASES = {
     }
 }
 
-# --- Password validation ---
+# === Password validation ===
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 8}},
@@ -91,36 +90,41 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# --- i18n / l10n / tz ---
+# === i18n / l10n / tz ===
 LANGUAGE_CODE = "ru-ru"
 TIME_ZONE = "Europe/Rome"
 USE_I18N = True
 USE_TZ = True
+
+# === Static & Media ===
+STATIC_URL = "/static/"
+# STATIC_ROOT = BASE_DIR / "staticfiles"  # PROD: collectstatic сюда
+
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
-# --- Static files ---
-STATIC_URL = "static/"
-# STATIC_ROOT = BASE_DIR / "staticfiles"  # PROD
 
-# --- Default PK type ---
+# === Default PK type ===
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# --- Custom User ---
+# === Custom User ===
 AUTH_USER_MODEL = "users.User"
 
-# --- DRF / JWT / Throttling ---
+# === DRF / JWT / Throttling ===
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
         "rest_framework.renderers.BrowsableAPIRenderer",
     ],
+    # ВАЖНО: добавляем мультипарт-парсеры глобально,
+    # чтобы загрузка файлов работала «из коробки»
     "DEFAULT_PARSER_CLASSES": [
         "rest_framework.parsers.JSONParser",
+        "rest_framework.parsers.FormParser",
+        "rest_framework.parsers.MultiPartParser",
     ],
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
-    # Включаем базовый троттлинг + нашу кастомную «login»
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
@@ -128,13 +132,17 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": "1000/day",
         "user": "5000/day",
-        "login": "5/min",  # используется в users/throttles.LoginRateThrottle
+        "login": "5/min",  # users/throttles.LoginRateThrottle (если используешь)
     },
 }
 
-# Сроки жизни токенов (по желанию корректируй)
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
+
+# === Dev helpers ===
+# Чтобы REST browsable API не ругался на большие файлы в памяти (опционально):
+# FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB
+# DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024

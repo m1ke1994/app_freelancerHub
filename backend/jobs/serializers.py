@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from rest_framework import serializers
 from django.utils.translation import gettext_lazy as _
 from .models import Job, JobAttachment
@@ -37,8 +39,8 @@ class JobSerializer(serializers.ModelSerializer):
             "is_active",
             "created_at",
             "updated_at",
+            # вычисляемые/сервисные:
             "attachments",
-            # новое:
             "status",
             "canceled_at",
             "canceled_reason",
@@ -48,7 +50,7 @@ class JobSerializer(serializers.ModelSerializer):
             "attachments", "status", "canceled_at", "canceled_reason",
         ]
 
-    def get_status(self, obj: Job):
+    def get_status(self, obj: Job) -> str:
         return obj.status
 
     def validate(self, attrs):
@@ -106,16 +108,16 @@ class JobSerializer(serializers.ModelSerializer):
         return attrs
 
     def get_attachments(self, obj: Job):
-        res = []
+        # Используем свойства модели для единообразия
+        out = []
         for att in obj.attachments.all():
-            url = att.file.url if att.file and hasattr(att.file, "url") else None
-            res.append({
+            out.append({
                 "id": att.id,
-                "url": url,
-                "name": att.original_name or (att.file.name if att.file else ""),
+                "url": att.file_url,
+                "name": att.filename,
                 "uploaded_at": att.uploaded_at,
             })
-        return res
+        return out
 
     def create(self, validated_data):
         """
@@ -138,9 +140,10 @@ class JobSerializer(serializers.ModelSerializer):
 
 
 class JobAttachmentSerializer(serializers.ModelSerializer):
+    # Пишем файл, читаем удобные поля
     file = serializers.FileField(write_only=True)
     url = serializers.SerializerMethodField(read_only=True)
-    name = serializers.CharField(source="original_name", read_only=True)
+    name = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = JobAttachment
@@ -148,12 +151,11 @@ class JobAttachmentSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "url", "name", "uploaded_at"]
 
     def get_url(self, obj: JobAttachment):
-        if obj.file and hasattr(obj.file, "url"):
-            return obj.file.url
-        return None
+        return obj.file_url or None
+
+    def get_name(self, obj: JobAttachment):
+        return obj.filename
 
     def create(self, validated_data):
-        f = validated_data.get("file")
-        if f and hasattr(f, "name"):
-            validated_data["original_name"] = f.name
+        # Модель сама заполнит original_name и нормализует имя файла
         return super().create(validated_data)

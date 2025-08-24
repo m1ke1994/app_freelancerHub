@@ -1,15 +1,20 @@
 <!-- src/view/PostJobWizard.vue -->
 <script setup>
 import { ref, reactive, computed } from "vue"
+import { useRouter } from "vue-router"
 import { useUserStore, baseURL } from "@/store/userStore.js"
+
+const router = useRouter()
 
 /* ===== Auth / Store ===== */
 const userStore = useUserStore()
+const isAuth = computed(() => Boolean(userStore?.access && userStore?.user))
+const isCustomer = computed(() => userStore?.user?.role === "customer")
 
 /* Шаги */
 const totalSteps = 4
 const currentStep = ref(1)
-const progress = computed(() => (currentStep.value - 1) / (totalSteps - 1) * 100)
+const progress = computed(() => ((currentStep.value - 1) / (totalSteps - 1)) * 100)
 
 /* Справочники */
 const categories = [
@@ -33,16 +38,16 @@ const formData = reactive({
   category: "",
   description: "",
   skills: [],
-  budgetType: "fixed",   // fixed | range
+  budgetType: "fixed",
   budgetFixed: "",
   budgetMin: "",
   budgetMax: "",
   deadline: "",
-  deadlineType: "flexible", // flexible | strict
+  deadlineType: "flexible",
   location: "",
   remote: true,
   urgent: false,
-  attachments: [],       // File[]
+  attachments: [], // File[]
 })
 
 /* Хелперы */
@@ -64,14 +69,19 @@ function removeSkill(skill) {
 /* Навигация */
 function canProceed() {
   if (currentStep.value === 1) {
-    return !!(formData.title && formData.category && formData.description && formData.description.trim().length >= 10)
+    return !!(
+      formData.title &&
+      formData.category &&
+      formData.description &&
+      formData.description.trim().length >= 10
+    )
   }
   if (currentStep.value === 2) {
     return formData.skills.length > 0
   }
   if (currentStep.value === 3) {
-    if (formData.budgetType === "fixed") return !!(formData.budgetFixed)
-    return !!(formData.budgetMin && formData.budgetMax)
+    if (formData.budgetType === "fixed") return formData.budgetFixed !== ""
+    return formData.budgetMin !== "" && formData.budgetMax !== ""
   }
   return true
 }
@@ -87,24 +97,28 @@ const fileInputRef = ref(null)
 function openFileDialog() { fileInputRef.value?.click() }
 function handleFileUpload(e) {
   const files = Array.from(e.target.files || [])
+  if (!files.length) return
   formData.attachments.push(...files)
-  e.target.value = "" // сброс выбора
+  e.target.value = "" // чтобы можно было выбрать тот же файл снова
 }
 function removeFile(index) { formData.attachments.splice(index, 1) }
+
+/* Drag&Drop */
+function onDrop(e) {
+  e.preventDefault()
+  const files = Array.from(e.dataTransfer?.files || [])
+  if (!files.length) return
+  formData.attachments.push(...files)
+}
+function onDragOver(e) { e.preventDefault() }
 
 /* ====== СТАТУС ОТПРАВКИ / АПИ ====== */
 const submitting = ref(false)
 const submitSuccess = ref(false)
 const submitError = ref("")
 const createdJobId = ref(null)
-let statusTimer = null
-function clearStatusAfter(ms = 3500) {
-  if (statusTimer) clearTimeout(statusTimer)
-  statusTimer = setTimeout(() => {
-    submitSuccess.value = false
-    submitError.value = ""
-  }, ms)
-}
+/* фиксируем высоту под статус, чтобы верстка не «прыгала» */
+const STATUS_MIN_H = 56 // px ~ 14px * 4 строки макс
 
 async function authedFetch(url, options = {}) {
   const headers = new Headers(options.headers || {})
@@ -121,19 +135,16 @@ async function handleSubmit() {
   submitError.value = ""
   createdJobId.value = null
 
-  if (!userStore?.isAuth) {
+  if (!isAuth.value) {
     submitError.value = "Войдите в систему, чтобы разместить задание."
-    clearStatusAfter()
     return
   }
-  if (!userStore.user || userStore.user.role !== "customer") {
+  if (!isCustomer.value) {
     submitError.value = "Создавать задания может только пользователь с ролью «заказчик»."
-    clearStatusAfter()
     return
   }
   if (!canProceed()) {
     submitError.value = "Проверьте обязательные поля на предыдущих шагах."
-    clearStatusAfter()
     return
   }
 
@@ -143,9 +154,18 @@ async function handleSubmit() {
     description: formData.description.trim(),
     skills: formData.skills.slice(),
     budget_type: formData.budgetType,
-    budget_fixed: formData.budgetType === "fixed" ? Number(formData.budgetFixed) : null,
-    budget_min:    formData.budgetType === "range" ? Number(formData.budgetMin) : null,
-    budget_max:    formData.budgetType === "range" ? Number(formData.budgetMax) : null,
+    budget_fixed:
+      formData.budgetType === "fixed" && formData.budgetFixed !== ""
+        ? Number(formData.budgetFixed)
+        : null,
+    budget_min:
+      formData.budgetType === "range" && formData.budgetMin !== ""
+        ? Number(formData.budgetMin)
+        : null,
+    budget_max:
+      formData.budgetType === "range" && formData.budgetMax !== ""
+        ? Number(formData.budgetMax)
+        : null,
     deadline: formData.deadline.trim(),
     deadline_type: formData.deadlineType,
     location: formData.location.trim(),
@@ -168,13 +188,14 @@ async function handleSubmit() {
         submitError.value = data?.detail || "Недостаточно прав для создания задания."
       } else if (createResp.status === 400 && data) {
         const firstKey = Object.keys(data)[0]
-        submitError.value = (typeof data[firstKey] === "string")
-          ? data[firstKey]
-          : Array.isArray(data[firstKey]) ? data[firstKey].join(" ") : "Проверьте заполнение полей."
+        const val = data[firstKey]
+        submitError.value =
+          typeof val === "string" ? val :
+          Array.isArray(val) ? val.join(" ") :
+          "Проверьте заполнение полей."
       } else {
         submitError.value = "Не удалось создать задание. Попробуйте позже."
       }
-      clearStatusAfter()
       return
     }
 
@@ -193,20 +214,23 @@ async function handleSubmit() {
 
       if (!attResp.ok) {
         let detail = "Файлы не удалось загрузить."
-        try { const j = await attResp.json(); detail = j?.detail || detail } catch {}
-        submitError.value = detail + " Задание создано без вложений."
-        clearStatusAfter()
+        try {
+          const j = await attResp.json()
+          detail = j?.detail || detail
+        } catch {}
+        // не блокируем редирект — просто покажем предупреждение на следующей странице по желанию
+        submitError.value = `${detail} Задание создано без вложений.`
       }
     }
 
+    // успех → редирект
     submitSuccess.value = true
-    clearStatusAfter()
     resetForm()
     currentStep.value = 4
+    router.push("/dashboard/my-tasks")
   } catch (e) {
     console.error(e)
     submitError.value = "Ошибка сети. Проверьте соединение."
-    clearStatusAfter()
   } finally {
     submitting.value = false
   }
@@ -248,7 +272,7 @@ function resetForm() {
     <div class="grid lg:grid-cols-3 gap-8">
       <!-- Навигация по шагам -->
       <div class="lg:col-span-1">
-        <div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm">
+        <div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm sticky top-6">
           <div class="px-5 py-4 border-b border-gray-200 dark:border-gray-800">
             <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Этапы создания</h3>
           </div>
@@ -339,10 +363,10 @@ function resetForm() {
                   placeholder="Опишите детали проекта, требования, ожидания…"
                   :value="formData.description"
                   @input="updateFormData('description', $event.target.value)"
-                  class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800
-                         px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                  class="w-full h-40 resize-none overflow-auto rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800
+                         px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 break-words"
                 />
-                <p class="text-sm text-gray-500 dark:text-gray-400">Минимум 100 символов — детальнее → лучше отклики</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400">Минимум 10 символов</p>
               </div>
             </div>
 
@@ -380,7 +404,7 @@ function resetForm() {
                   <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Выбранные навыки ({{ formData.skills.length }})
                   </label>
-                  <div class="flex flex-wrap gap-2">
+                  <div class="flex flex-wrap gap-2 max-h-28 overflow-auto">
                     <span
                       v-for="s in formData.skills"
                       :key="s"
@@ -519,7 +543,7 @@ function resetForm() {
                       <input type="radio" value="flexible" v-model="formData.deadlineType" class="accent-indigo-600" />
                       Гибкий (можно обсудить)
                     </label>
-                    <label class="inline-flex items-center gap-2 text-sm">
+                    <label class="inline-flex items-center gap-2 text см">
                       <input type="radio" value="strict" v-model="formData.deadlineType" class="accent-indigo-600" />
                       Строгий (не подлежит изменению)
                     </label>
@@ -564,10 +588,14 @@ function resetForm() {
                 <p class="text-gray-500 dark:text-gray-400">Убедитесь, что все данные указаны верно</p>
               </div>
 
-              <!-- Статус отправки -->
-              <div v-if="submitting || submitSuccess || submitError" class="rounded-lg p-3"
-                   :class="submitting ? 'bg-indigo-50 dark:bg-indigo-900/20' : (submitSuccess ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20')">
-                <p class="text-sm"
+              <!-- Статус: фиксированное место под блок -->
+              <div
+                class="rounded-lg p-3 transition-colors"
+                :class="submitting ? 'bg-indigo-50 dark:bg-indigo-900/20' : (submitSuccess ? 'bg-green-50 dark:bg-green-900/20' : (submitError ? 'bg-red-50 dark:bg-red-900/20' : 'bg-transparent'))"
+                :style="{ minHeight: STATUS_MIN_H + 'px' }"
+              >
+                <p v-if="submitting || submitSuccess || submitError"
+                   class="text-sm"
                    :class="submitting ? 'text-indigo-700 dark:text-indigo-200' : (submitSuccess ? 'text-green-700 dark:text-green-200' : 'text-red-700 dark:text-red-200')">
                   <template v-if="submitting">Отправляем…</template>
                   <template v-else-if="submitSuccess">Готово! Задание опубликовано<span v-if="createdJobId"> (ID: {{ createdJobId }})</span>.</template>
@@ -580,7 +608,11 @@ function resetForm() {
                 <div class="space-y-4">
                   <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Дополнительные файлы (необязательно)</label>
 
-                  <div class="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-6 text-center">
+                  <div
+                    class="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-6 text-center"
+                    @dragover="onDragOver"
+                    @drop="onDrop"
+                  >
                     <svg class="w-8 h-8 text-gray-400 mx-auto mb-2" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5-5 5 5M12 5v9"/>
                     </svg>
@@ -610,13 +642,13 @@ function resetForm() {
                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Прикрепленные файлы ({{ formData.attachments.length }})
                     </label>
-                    <div class="space-y-2">
+                    <div class="space-y-2 max-h-48 overflow-auto pr-1">
                       <div
                         v-for="(file, idx) in formData.attachments"
                         :key="idx"
                         class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded"
                       >
-                        <span class="text-sm text-gray-700 dark:text-gray-200 truncate max-w-[70%]">{{ file.name }}</span>
+                        <span class="text-sm text-gray-700 dark:text-gray-200 truncate max-w-[70%] break-all">{{ file.name }}</span>
                         <button
                           type="button"
                           @click="removeFile(idx)"
@@ -644,9 +676,9 @@ function resetForm() {
                   <div class="rounded-xl border-2 border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
                     <div class="p-5 border-b border-gray-200 dark:border-gray-800">
                       <div class="flex items-start justify-between">
-                        <div class="flex-1">
+                        <div class="flex-1 min-w-0">
                           <div class="flex items-center gap-2 mb-2">
-                            <h3 class="text-xl font-semibold text-gray-900 dark:text-white">
+                            <h3 class="text-xl font-semibold text-gray-900 dark:text-white truncate">
                               {{ formData.title || "Название задания" }}
                             </h3>
                             <span
@@ -662,7 +694,7 @@ function resetForm() {
                           </div>
                         </div>
 
-                        <div class="text-right">
+                        <div class="text-right shrink-0">
                           <div class="text-2xl font-bold text-indigo-600">
                             <template v-if="formData.budgetType === 'fixed'">
                               {{ formData.budgetFixed || '0' }} ₽
@@ -676,11 +708,13 @@ function resetForm() {
                     </div>
 
                     <div class="p-5">
-                      <p class="text-sm text-gray-700 dark:text-gray-300 mb-4">
-                        {{ formData.description || "Описание задания…" }}
-                      </p>
+                      <div class="max-h-40 overflow-auto whitespace-pre-line break-words">
+                        <p class="text-sm text-gray-700 dark:text-gray-300">
+                          {{ formData.description || "Описание задания…" }}
+                        </p>
+                      </div>
 
-                      <div v-if="formData.skills.length" class="flex flex-wrap gap-2">
+                      <div v-if="formData.skills.length" class="flex flex-wrap gap-2 mt-4 max-h-24 overflow-auto">
                         <span
                           v-for="s in formData.skills"
                           :key="s"

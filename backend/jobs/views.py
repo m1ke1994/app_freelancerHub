@@ -41,16 +41,16 @@ class JobViewSet(viewsets.ModelViewSet):
     """
     CRUD для заданий:
 
-    - POST /api/jobs/                   — создать задание (ТОЛЬКО customer)
-    - GET  /api/jobs/                   — список (поддерживает ?owner=me)
-    - GET  /api/jobs/{id}/              — детально
-    - PATCH/PUT /api/jobs/{id}/         — редактировать (только владелец)
-    - DELETE /api/jobs/{id}/            — удалить (только владелец)
+    - POST        /api/jobs/                    — создать задание (ТОЛЬКО customer)
+    - GET         /api/jobs/                    — список (поддерживает ?owner=me)
+    - GET         /api/jobs/{id}/               — детально
+    - PATCH/PUT   /api/jobs/{id}/               — редактировать (только владелец)
+    - DELETE      /api/jobs/{id}/               — удалить (только владелец)
 
     Доп. действия:
-    - GET  /api/jobs/{id}/attachments/  — список вложений
-    - POST /api/jobs/{id}/attachments/  — загрузить файлы (ТОЛЬКО владелец и customer)
-    - POST /api/jobs/{id}/cancel/       — отменить (ТОЛЬКО владелец и customer)
+    - GET         /api/jobs/{id}/attachments/   — список вложений
+    - POST        /api/jobs/{id}/attachments/   — загрузить файлы (ТОЛЬКО владелец и customer)
+    - POST        /api/jobs/{id}/cancel/        — отменить (ТОЛЬКО владелец и customer)
     """
     serializer_class = JobSerializer
     parser_classes = [parsers.JSONParser, parsers.MultiPartParser, parsers.FormParser]
@@ -69,20 +69,33 @@ class JobViewSet(viewsets.ModelViewSet):
         return qs
 
     def get_permissions(self):
-        if self.action in ["list", "retrieve", "list_attachments"]:
+        # Публичные чтения
+        if self.action in ["list", "retrieve"]:
             return [permissions.AllowAny()]
-        if self.action in ["create"]:
-            return [permissions.IsAuthenticated(), IsCustomer()]
-        if self.action in ["upload_attachments", "cancel"]:
+
+        # Унифицированный экшен attachments: GET публичный, POST — ограничения
+        if self.action == "attachments":
+            if self.request.method == "GET":
+                return [permissions.AllowAny()]
+            # POST
             return [permissions.IsAuthenticated(), IsOwnerOrReadOnly(), IsCustomer()]
+
+        if self.action == "create":
+            return [permissions.IsAuthenticated(), IsCustomer()]
+
+        if self.action == "cancel":
+            return [permissions.IsAuthenticated(), IsOwnerOrReadOnly(), IsCustomer()]
+
         # update/partial_update/destroy
         return [permissions.IsAuthenticated(), IsOwnerOrReadOnly()]
 
     def perform_create(self, serializer):
+        # Если в сериализаторе не проставляется владелец — раскомментируй owner=self.user
+        # serializer.save(owner=self.request.user)
         serializer.save()
 
     def create(self, request, *args, **kwargs):
-        # Защита на роль (дублируем явной проверкой)
+        # Явная проверка роли на всякий случай
         if getattr(request.user, "role", None) != "customer":
             return Response(
                 {"detail": "Создавать задания может только пользователь с ролью заказчик."},
@@ -93,7 +106,7 @@ class JobViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         job = serializer.save()
 
-        # Вложения (опционально)
+        # Опциональная первичная загрузка вложений при создании
         files: List = []
         if "attachments" in request.FILES:
             files = request.FILES.getlist("attachments")
@@ -112,22 +125,24 @@ class JobViewSet(viewsets.ModelViewSet):
         out = JobSerializer(job, context={"request": request}).data
         return Response(out, status=status.HTTP_201_CREATED, headers=headers)
 
-    @action(detail=True, methods=["get"], url_path="attachments", permission_classes=[permissions.AllowAny])
-    def list_attachments(self, request, pk=None):
-        job = self.get_object()
-        ser = JobAttachmentSerializer(job.attachments.all(), many=True, context={"request": request})
-        return Response(ser.data)
-
     @action(
         detail=True,
-        methods=["post"],
+        methods=["get", "post"],
         url_path="attachments",
         parser_classes=[parsers.MultiPartParser, parsers.FormParser],
     )
-    def upload_attachments(self, request, pk=None):
+    def attachments(self, request, pk=None):
+        """
+        GET  /api/jobs/{id}/attachments/ — список вложений (публично)
+        POST /api/jobs/{id}/attachments/ — загрузить файлы (только владелец + role=customer)
+        """
         job = self.get_object()
 
-        # Права: IsOwnerOrReadOnly + IsCustomer через get_permissions()
+        if request.method == "GET":
+            ser = JobAttachmentSerializer(job.attachments.all(), many=True, context={"request": request})
+            return Response(ser.data, status=status.HTTP_200_OK)
+
+        # POST — загрузка
         if job.owner_id != request.user.id:
             return Response({"detail": "Недостаточно прав."}, status=status.HTTP_403_FORBIDDEN)
 
