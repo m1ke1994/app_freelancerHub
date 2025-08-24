@@ -1,18 +1,16 @@
 <!-- src/view/JobsCatalog.vue -->
 <script setup>
-import { ref, computed } from "vue"
+import { ref, computed, watch, onMounted } from "vue"
 
-/* Категории (замени при необходимости) */
-const categories = [
-  "Веб-разработка",
-  "Мобильные приложения",
-  "Дизайн",
-  "Копирайтинг",
-  "SEO и маркетинг",
-  "Переводы",
-]
+/* === CONFIG === */
+const API_BASE = (import.meta?.env?.VITE_API_BASE || "http://127.0.0.1:8000").replace(/\/$/, "")
+const PAGE_SIZE = 20
 
-/* Состояние фильтров */
+/* === UI state === */
+const loading = ref(false)
+const error = ref("")
+
+/* === Фильтры === */
 const searchQuery = ref("")
 const selectedCategory = ref("")
 const budgetRange = ref([0, 200000]) // [min, max]
@@ -20,102 +18,25 @@ const remoteOnly = ref(false)
 const urgentOnly = ref(false)
 const sortBy = ref("newest") // newest | budget-high | budget-low | responses
 
-/* Демоданные */
-const jobs = ref([
-  {
-    id: 1,
-    title: "Разработка интернет-магазина на Vue",
-    deadline: "2 недели",
-    location: "Удаленно",
-    responses: 12,
-    views: 340,
-    budget: { min: 120000, max: 180000, currency: "₽" },
-    clientName: "ООО «ТехМарт»",
-    clientRating: 4.8,
-    urgent: true,
-    category: "Веб-разработка",
-    skills: ["Vue 3", "Pinia", "Node.js"],
-    description: "Нужно собрать интернет-магазин с каталогом, фильтрами и оплатой.",
-    postedAt: "2025-08-10T10:00:00Z",
-    remote: true,
-  },
-  {
-    id: 2,
-    title: "Дизайн мобильного приложения",
-    deadline: "10 дней",
-    location: "Москва/удаленно",
-    responses: 8,
-    views: 210,
-    budget: { min: 70000, max: 90000, currency: "₽" },
-    clientName: "Startup Labs",
-    clientRating: 4.5,
-    urgent: false,
-    category: "Дизайн",
-    skills: ["Figma", "UI/UX"],
-    description: "Нужно продумать UX и отрисовать UI для iOS и Android.",
-    postedAt: "2025-08-14T12:00:00Z",
-    remote: true,
-  },
-  {
-    id: 3,
-    title: "SEO оптимизация корпоративного сайта",
-    deadline: "1 месяц",
-    location: "Санкт-Петербург",
-    responses: 15,
-    views: 480,
-    budget: { min: 40000, max: 60000, currency: "₽" },
-    clientName: "Digital Plus",
-    clientRating: 4.2,
-    urgent: false,
-    category: "SEO и маркетинг",
-    skills: ["SEO", "GA4", "Контент"],
-    description: "Аудит, кластеризация, оптимизация контента и мета-данных.",
-    postedAt: "2025-08-09T09:00:00Z",
-    remote: false,
-  },
-])
+/* === Данные === */
+const categories = ref([])
+const jobs = ref([])
+const total = ref(0)
+const page = ref(1)
 
-/* Фильтрация + сортировка */
-const filteredJobs = computed(() => {
-  let list = jobs.value.slice()
-
-  const q = searchQuery.value.trim().toLowerCase()
-  if (q) {
-    list = list.filter(j =>
-      j.title.toLowerCase().includes(q) ||
-      j.description.toLowerCase().includes(q) ||
-      j.skills.some(s => s.toLowerCase().includes(q))
-    )
-  }
-
-  if (selectedCategory.value) {
-    list = list.filter(j => j.category === selectedCategory.value)
-  }
-
-  const [minB, maxB] = budgetRange.value
-  list = list.filter(j => j.budget.max >= minB && j.budget.min <= maxB)
-
-  if (remoteOnly.value) list = list.filter(j => j.remote)
-  if (urgentOnly.value) list = list.filter(j => j.urgent)
-
-  switch (sortBy.value) {
-    case "budget-high":
-      list.sort((a, b) => b.budget.max - a.budget.max); break
-    case "budget-low":
-      list.sort((a, b) => a.budget.min - b.budget.min); break
-    case "responses":
-      list.sort((a, b) => a.responses - b.responses); break
-    default: // newest
-      list.sort((a, b) => new Date(b.postedAt) - new Date(a.postedAt))
-  }
-
-  return list
-})
-
-/* Двойной слайдер бюджета — чистый JS */
+/* === Служебное === */
 const budgetMin = 0
 const budgetMax = 200000
 const budgetStep = 5000
+
+const orderingMap = {
+  newest: "-created_at",
+  "budget-high": "-bmax",
+  "budget-low": "bmin",
+  responses: "responses_count_annot",
+}
+
+/* ===== helpers ===== */
 function setBudgetMin(e) {
   const val = Math.min(Number(e.target.value), budgetRange.value[1])
   budgetRange.value = [val, budgetRange.value[1]]
@@ -125,8 +46,145 @@ function setBudgetMax(e) {
   budgetRange.value = [budgetRange.value[0], val]
 }
 
-/* Пагинация (демо) */
-const page = ref(1)
+function buildQuery() {
+  const params = new URLSearchParams()
+  const q = searchQuery.value.trim()
+  if (q) params.set("q", q)
+  if (selectedCategory.value) params.set("category", selectedCategory.value)
+  if (remoteOnly.value) params.set("remote", "true")
+  if (urgentOnly.value) params.set("urgent", "true")
+
+  const [mn, mx] = budgetRange.value || []
+  if (Number.isFinite(+mn)) params.set("budget_min", String(+mn))
+  if (Number.isFinite(+mx)) params.set("budget_max", String(+mx))
+
+  params.set("ordering", orderingMap[sortBy.value] || "-created_at")
+  params.set("page", String(page.value || 1))
+  params.set("page_size", String(PAGE_SIZE))
+  return params.toString()
+}
+
+function normalizeClientName(owner) {
+  const full = owner?.full_name?.trim?.()
+  if (full) return full
+  const join = [owner?.first_name, owner?.last_name].filter(Boolean).join(" ").trim()
+  if (join) return join
+  if (owner?.username) return owner.username
+  if (owner?.email && owner.email.includes("@")) return owner.email.split("@")[0]
+  if (Number.isFinite(owner?.id)) return `ID ${owner.id}`
+  return "Клиент"
+}
+
+function normalizeClientUsername(owner) {
+  if (owner?.username?.trim?.()) return owner.username.trim()
+  if (owner?.email && owner.email.includes("@")) return owner.email.split("@")[0]
+  if (Number.isFinite(owner?.id)) return `user${owner.id}`
+  return "user"
+}
+
+function toNumOrNull(v) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+function formatBudget(b) {
+  const cur = b?.currency || "₽"
+  const hasMin = Number.isFinite(b?.min)
+  const hasMax = Number.isFinite(b?.max)
+
+  if (hasMin && hasMax) {
+    if (b.min === b.max) return `${b.min.toLocaleString()} ${cur}`
+    return `от ${b.min.toLocaleString()} до ${b.max.toLocaleString()} ${cur}`
+  }
+  if (hasMin) return `от ${b.min.toLocaleString()} ${cur}`
+  if (hasMax) return `до ${b.max.toLocaleString()} ${cur}`
+  return "не указан"
+}
+
+/* ===== API ===== */
+async function fetchCategories() {
+  try {
+    const r = await fetch(`${API_BASE}/api/jobs/categories/`, { headers: { Accept: "application/json" } })
+    if (!r.ok) return
+    const data = await r.json()
+    categories.value = Array.isArray(data) ? data : []
+  } catch { /* no-op */ }
+}
+
+async function fetchJobs() {
+  loading.value = true
+  error.value = ""
+  try {
+    const qs = buildQuery()
+    const res = await fetch(`${API_BASE}/api/jobs/?${qs}`, { headers: { Accept: "application/json" } })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    total.value = data?.count || 0
+
+    jobs.value = (data?.results || []).map(it => {
+      const owner = it.owner || {}
+
+      // Определяем min/max по типу бюджета без "нулей-заменителей":
+      // fixed -> min=max=fixed; range -> берем min/max; иначе null.
+      let min = null
+      let max = null
+      if (it.budget_type === "fixed") {
+        const fixed = toNumOrNull(it.budget_fixed)
+        min = fixed
+        max = fixed
+      } else if (it.budget_type === "range") {
+        min = toNumOrNull(it.budget_min)
+        max = toNumOrNull(it.budget_max)
+      }
+
+      return {
+        id: it.id,
+        title: it.title,
+        deadline: it.deadline_text || it.deadline || "",
+        location: it.location || (it.remote ? "Удаленно" : ""),
+        responses: it.responses_count ?? 0,
+        views: it.views_count ?? 0,
+        budget: { min, max, currency: "₽" },
+        clientName: normalizeClientName(owner),
+        clientUsername: normalizeClientUsername(owner),
+        clientRating: Number(owner?.rating ?? 0),
+        urgent: !!it.urgent,
+        category: it.category,
+        skills: Array.isArray(it.skills) ? it.skills : [],
+        description: it.description || "",
+        postedAt: it.created_at,
+        remote: !!it.remote,
+      }
+    })
+  } catch (e) {
+    error.value = e?.message || "Ошибка загрузки"
+    jobs.value = []
+    total.value = 0
+  } finally {
+    loading.value = false
+  }
+}
+
+/* === Дебаунс перезагрузки при изменении фильтров === */
+let t = null
+function refetchDebounced() {
+  clearTimeout(t)
+  t = setTimeout(() => { page.value = 1; fetchJobs() }, 250)
+}
+
+onMounted(() => {
+  fetchCategories()
+  fetchJobs()
+})
+watch([searchQuery, selectedCategory, remoteOnly, urgentOnly, sortBy, budgetRange], refetchDebounced)
+watch(page, fetchJobs)
+
+/* === Вспомогательные вычисления для UI === */
+const totalPages = computed(() => Math.max(1, Math.ceil((total.value || 0) / PAGE_SIZE)))
+const hasResults = computed(() => (jobs.value?.length || 0) > 0)
+
+/* Псевдо-селектор для шаблона */
+const filteredJobs = computed(() => jobs.value)
 </script>
 
 <template>
@@ -194,7 +252,6 @@ const page = ref(1)
                     width: ((budgetRange[1] - budgetRange[0]) / (budgetMax - budgetMin)) * 100 + '%'
                   }"
                 />
-                <!-- левый ползунок -->
                 <input
                   class="range-thumb"
                   type="range"
@@ -204,7 +261,6 @@ const page = ref(1)
                   :value="budgetRange[0]"
                   @input="setBudgetMin"
                 />
-                <!-- правый ползунок -->
                 <input
                   class="range-thumb"
                   type="range"
@@ -256,7 +312,11 @@ const page = ref(1)
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
             <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Каталог заданий</h1>
-            <p class="text-gray-500 dark:text-gray-400">Найдено {{ filteredJobs.length }} заданий</p>
+            <p class="text-gray-500 dark:text-gray-400">
+              <template v-if="loading">Загрузка…</template>
+              <template v-else>Найдено {{ total }} заданий</template>
+            </p>
+            <p v-if="error" class="text-rose-600 text-sm mt-1">{{ error }}</p>
           </div>
 
           <div class="flex items-center gap-2">
@@ -278,7 +338,7 @@ const page = ref(1)
 
         <!-- Список заданий -->
         <div class="space-y-6">
-          <template v-if="filteredJobs.length === 0">
+          <template v-if="!loading && !hasResults">
             <div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-center py-12">
               <div class="px-6">
                 <div class="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -294,7 +354,13 @@ const page = ref(1)
           </template>
 
           <template v-else>
+            <!-- skeleton -->
+            <div v-if="loading" class="grid gap-4">
+              <div v-for="n in 3" :key="n" class="h-32 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 animate-pulse"></div>
+            </div>
+
             <div
+              v-else
               v-for="job in filteredJobs"
               :key="job.id"
               class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 hover:shadow-lg transition-shadow"
@@ -347,10 +413,19 @@ const page = ref(1)
 
                   <div class="text-right">
                     <div class="text-2xl font-bold text-indigo-600 mb-1">
-                      {{ job.budget.min.toLocaleString() }} - {{ job.budget.max.toLocaleString() }} {{ job.budget.currency }}
+                      {{ formatBudget(job.budget) }}
                     </div>
-                    <div class="text-sm text-gray-500 dark:text-gray-400">{{ job.clientName }}</div>
-                    <div class="flex items-center gap-1 text-sm text-yellow-500">
+
+                    <!-- Имя и юзернейм -->
+                    <div class="text-sm text-gray-700 dark:text-gray-300">
+                      {{ job.clientName }}
+                    </div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">
+                      @{{ job.clientUsername }}
+                    </div>
+
+                    <!-- Рейтинг (если есть) -->
+                    <div class="flex items-center gap-1 text-sm text-yellow-500 mt-1" v-if="job.clientRating > 0">
                       <span>★</span>
                       <span class="text-gray-700 dark:text-gray-300">{{ job.clientRating }}</span>
                     </div>
@@ -405,19 +480,26 @@ const page = ref(1)
           </template>
         </div>
 
-        <!-- Пагинация (демо) -->
-        <div v-if="filteredJobs.length > 0" class="flex items-center justify-center gap-2 mt-8">
+        <!-- Пагинация -->
+        <div v-if="hasResults && !loading" class="flex items-center justify-center gap-2 mt-8">
           <button
             class="px-3 py-2 rounded-md border text-sm border-gray-300 dark:border-gray-700
                    text-gray-700 dark:text-gray-200 disabled:opacity-50"
-            disabled
+            :disabled="page <= 1"
+            @click="page = Math.max(1, page - 1)"
           >
             Предыдущая
           </button>
-          <button class="px-3 py-2 rounded-md border text-sm border-indigo-600 bg-indigo-600 text-white">1</button>
-          <button class="px-3 py-2 rounded-md border text-sm border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200">2</button>
-          <button class="px-3 py-2 rounded-md border text-sm border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200">3</button>
-          <button class="px-3 py-2 rounded-md border text-sm border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200">
+
+          <span class="px-3 py-2 rounded-md border text-sm border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200">
+            {{ page }} / {{ totalPages }}
+          </span>
+
+          <button
+            class="px-3 py-2 rounded-md border text-sm border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200"
+            :disabled="page >= totalPages"
+            @click="page = Math.min(totalPages, page + 1)"
+          >
             Следующая
           </button>
         </div>
@@ -443,7 +525,7 @@ const page = ref(1)
   height: 18px;
   border-radius: 9999px;
   background: white;
-  border: 2px solid rgb(99 102 241); /* indigo-500 */
+  border: 2px solid rgb(99 102 241);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
 }
 .range-thumb::-moz-range-thumb {

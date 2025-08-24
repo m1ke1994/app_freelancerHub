@@ -24,7 +24,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-
+     "django_filters",
     # 3rd-party
     "corsheaders",
     "rest_framework",
@@ -115,8 +115,6 @@ REST_FRAMEWORK = {
         "rest_framework.renderers.JSONRenderer",
         "rest_framework.renderers.BrowsableAPIRenderer",
     ],
-    # ВАЖНО: добавляем мультипарт-парсеры глобально,
-    # чтобы загрузка файлов работала «из коробки»
     "DEFAULT_PARSER_CLASSES": [
         "rest_framework.parsers.JSONParser",
         "rest_framework.parsers.FormParser",
@@ -132,9 +130,19 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": "1000/day",
         "user": "5000/day",
-        "login": "5/min",  # users/throttles.LoginRateThrottle (если используешь)
+        "login": "5/min",
     },
+
+    # 🚀 ДОБАВЬ ЭТО:
+    "DEFAULT_FILTER_BACKENDS": [
+        "django_filters.rest_framework.DjangoFilterBackend",
+        "rest_framework.filters.OrderingFilter",
+        "rest_framework.filters.SearchFilter",  # если захочешь глобальный поиск
+    ],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 20,
 }
+
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),

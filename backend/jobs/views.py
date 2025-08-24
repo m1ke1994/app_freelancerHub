@@ -1,6 +1,6 @@
 from typing import List
 
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q, Case, When, F, Value, IntegerField
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -8,6 +8,11 @@ from rest_framework import status, viewsets, permissions, parsers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework import filters as drf_filters
+
+# Фильтры (django-filter)
+from django_filters import rest_framework as djf_filters
+from django_filters import FilterSet, CharFilter, BooleanFilter, NumberFilter
 
 from .models import Job, JobAttachment
 from .serializers import JobSerializer, JobAttachmentSerializer
@@ -37,12 +42,63 @@ class IsCustomer(permissions.BasePermission):
         return role == "customer"
 
 
+# === Фильтры каталога ===
+class JobFilter(FilterSet):
+    q = CharFilter(method="filter_q")
+    category = CharFilter(field_name="category", lookup_expr="iexact")
+    remote = BooleanFilter()
+    urgent = BooleanFilter()
+    budget_min = NumberFilter(method="filter_budget_min")
+    budget_max = NumberFilter(method="filter_budget_max")
+
+    def _with_budget_bounds(self, qs):
+        # Для сортировки/фильтра: нормализуем бюджет в bmin/bmax
+        return qs.annotate(
+            bmin=Case(
+                When(budget_type=Job.BudgetType.FIXED, then=F("budget_fixed")),
+                default=F("budget_min"),
+                output_field=IntegerField(),
+            ),
+            bmax=Case(
+                When(budget_type=Job.BudgetType.FIXED, then=F("budget_fixed")),
+                default=F("budget_max"),
+                output_field=IntegerField(),
+            ),
+            # Плейсхолдер для сортировки по откликам — заменишь на реальный count позже
+            responses_count_annot=Value(0, output_field=IntegerField()),
+        )
+
+    def filter_q(self, qs, name, value):
+        if not value:
+            return qs
+        return qs.filter(
+            Q(title__icontains=value) |
+            Q(description__icontains=value)
+        )
+
+    # Пересечение: job.bmax >= ui_min
+    def filter_budget_min(self, qs, name, value):
+        if value in (None, ""):
+            return qs
+        return self._with_budget_bounds(qs).filter(bmax__gte=value)
+
+    # Пересечение: job.bmin <= ui_max
+    def filter_budget_max(self, qs, name, value):
+        if value in (None, ""):
+            return qs
+        return self._with_budget_bounds(qs).filter(bmin__lte=value)
+
+    class Meta:
+        model = Job
+        fields = ["category", "remote", "urgent"]
+
+
 class JobViewSet(viewsets.ModelViewSet):
     """
     CRUD для заданий:
 
     - POST        /api/jobs/                    — создать задание (ТОЛЬКО customer)
-    - GET         /api/jobs/                    — список (поддерживает ?owner=me)
+    - GET         /api/jobs/                    — список (фильтры/сортировка/пагинация)
     - GET         /api/jobs/{id}/               — детально
     - PATCH/PUT   /api/jobs/{id}/               — редактировать (только владелец)
     - DELETE      /api/jobs/{id}/               — удалить (только владелец)
@@ -55,17 +111,39 @@ class JobViewSet(viewsets.ModelViewSet):
     serializer_class = JobSerializer
     parser_classes = [parsers.JSONParser, parsers.MultiPartParser, parsers.FormParser]
 
+    # 🔎 фильтры/сортировка (работают при наличии настроек в settings.py)
+    filterset_class = JobFilter
+    filter_backends = [djf_filters.DjangoFilterBackend, drf_filters.OrderingFilter]
+    ordering_fields = ["created_at", "bmin", "bmax", "responses_count_annot"]
+    ordering = ["-created_at"]  # по умолчанию — новые сверху
+
     def get_queryset(self):
         qs = (
             Job.objects
-            .select_related("owner")
+            .select_related("owner")  # важно для отдачи конкретного клиента в сериализаторе
             .prefetch_related(Prefetch("attachments", queryset=JobAttachment.objects.order_by("-uploaded_at")))
             .order_by("-created_at")
         )
+
         # /api/jobs/?owner=me — только задания текущего пользователя
         owner = self.request.query_params.get("owner")
         if owner == "me" and self.request.user and self.request.user.is_authenticated:
             qs = qs.filter(owner_id=self.request.user.id)
+
+        # Аннотации для bmin/bmax и responses_count_annot (для сортировки без доп. фильтров)
+        qs = qs.annotate(
+            bmin=Case(
+                When(budget_type=Job.BudgetType.FIXED, then=F("budget_fixed")),
+                default=F("budget_min"),
+                output_field=IntegerField(),
+            ),
+            bmax=Case(
+                When(budget_type=Job.BudgetType.FIXED, then=F("budget_fixed")),
+                default=F("budget_max"),
+                output_field=IntegerField(),
+            ),
+            responses_count_annot=Value(0, output_field=IntegerField()),
+        )
         return qs
 
     def get_permissions(self):
@@ -90,8 +168,7 @@ class JobViewSet(viewsets.ModelViewSet):
         return [permissions.IsAuthenticated(), IsOwnerOrReadOnly()]
 
     def perform_create(self, serializer):
-        # Если в сериализаторе не проставляется владелец — раскомментируй owner=self.user
-        # serializer.save(owner=self.request.user)
+        # В сериализаторе create() уже проставляется owner=request.user и проверяется role
         serializer.save()
 
     def create(self, request, *args, **kwargs):

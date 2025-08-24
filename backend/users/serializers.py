@@ -15,9 +15,10 @@ class RegisterSerializer(serializers.ModelSerializer):
     confirm = serializers.CharField(write_only=True)
     role = serializers.ChoiceField(choices=User.ROLE_CHOICES)
     phone = serializers.CharField(validators=[phone_validator])
+
     class Meta:
         model = User
-        fields = ("first_name","last_name","email","phone","role","password","confirm")
+        fields = ("first_name", "last_name", "email", "phone", "role", "password", "confirm")
         extra_kwargs = {
             "first_name": {"required": True, "allow_blank": False},
             "last_name": {"required": True, "allow_blank": False},
@@ -25,6 +26,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             "email": {"required": True, "allow_blank": False},
             "phone": {"required": True, "allow_blank": False},
         }
+
     def validate_email(self, value: str) -> str:
         email = (value or "").strip().lower()
         if not email:
@@ -32,15 +34,18 @@ class RegisterSerializer(serializers.ModelSerializer):
         if User.objects.filter(email__iexact=email).exists():
             raise serializers.ValidationError("Пользователь с таким e-mail уже существует")
         return email
+
     def validate_phone(self, value: str) -> str:
         phone = (value or "").strip()
         if User.objects.filter(phone=phone).exists():
             raise serializers.ValidationError("Пользователь с таким телефоном уже существует")
         return phone
+
     def validate(self, attrs):
         if attrs.get("password") != attrs.get("confirm"):
             raise serializers.ValidationError({"confirm": "Пароли не совпадают"})
         return attrs
+
     def create(self, validated_data):
         validated_data.pop("confirm", None)
         password = validated_data.pop("password")
@@ -57,6 +62,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         user.save()
         return user
 
+
 class ProfileSerializer(serializers.ModelSerializer):
     avatar_url = serializers.SerializerMethodField(read_only=True)
 
@@ -64,17 +70,17 @@ class ProfileSerializer(serializers.ModelSerializer):
         model = User
         # отдадим и примем все поля анкеты + системные read-only
         fields = (
-            "id","email","phone","role","username",
-            "first_name","last_name",
+            "id", "email", "phone", "role", "username",
+            "first_name", "last_name",
             "avatar_url",
 
             # анкета
-            "title","bio","location","gender","education","status",
-            "categories","skills",
-            "rate_type","hourly_rate","project_rate","availability",
-            "links","socials","portfolio","busy_dates",
+            "title", "bio", "location", "gender", "education", "status",
+            "categories", "skills",
+            "rate_type", "hourly_rate", "project_rate", "availability",
+            "links", "socials", "portfolio", "busy_dates",
         )
-        read_only_fields = ("id","email","phone","role","username","avatar_url")
+        read_only_fields = ("id", "email", "phone", "role", "username", "avatar_url")
 
     def get_avatar_url(self, obj):
         url = getattr(obj, "avatar_url", None)
@@ -82,6 +88,7 @@ class ProfileSerializer(serializers.ModelSerializer):
         if url and request is not None and not str(url).startswith("http"):
             return request.build_absolute_uri(url)
         return url
+
 
 class AvatarUploadSerializer(serializers.ModelSerializer):
     class Meta:
@@ -100,14 +107,12 @@ class AvatarUploadSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Слишком большой файл (макс 5 МБ).")
         return file
 
-    class Meta:
-        model = User
-        fields = ("avatar",)
 
 class EmailTokenObtainPairSerializer(serializers.Serializer):
     username = serializers.CharField(required=False, allow_blank=True)
     email = serializers.EmailField(required=False, allow_blank=True)
     password = serializers.CharField(write_only=True)
+
     def validate(self, attrs):
         username = (attrs.get("username") or "").strip()
         email = (attrs.get("email") or "").strip().lower()
@@ -130,3 +135,44 @@ class EmailTokenObtainPairSerializer(serializers.Serializer):
             raise exceptions.ValidationError({"detail": "Аккаунт отключён. Обратитесь в поддержку."})
         refresh = RefreshToken.for_user(user)
         return {"access": str(refresh.access_token), "refresh": str(refresh)}
+
+
+# === Публичный сериализатор владельца задания (для вложения в jobs) ===
+# === Публичный сериализатор владельца задания (без жёстких полей) ===
+class OwnerPublicSerializer(serializers.ModelSerializer):
+    full_name = serializers.SerializerMethodField()
+    avatar_url = serializers.SerializerMethodField()
+    rating = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = (
+            "id",
+            "username",
+            "first_name",
+            "last_name",
+            "full_name",
+            "avatar_url",  # получаем из avatar_url или avatar.url
+            "rating",      # float, 0.0 если нет поля
+        )
+        read_only_fields = fields
+
+    def get_full_name(self, obj):
+        name = f"{(obj.first_name or '').strip()} {(obj.last_name or '').strip()}".strip()
+        return name or None
+
+    def get_avatar_url(self, obj):
+        url = getattr(obj, "avatar_url", None)
+        if not url and hasattr(obj, "avatar") and getattr(obj.avatar, "url", None):
+            url = obj.avatar.url
+        request = self.context.get("request")
+        if url and request is not None and not str(url).startswith("http"):
+            return request.build_absolute_uri(url)
+        return url
+
+    def get_rating(self, obj):
+        val = getattr(obj, "rating", None)
+        try:
+            return float(val) if val is not None else 0.0
+        except Exception:
+            return 0.0

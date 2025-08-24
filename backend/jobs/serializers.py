@@ -4,19 +4,39 @@ from rest_framework import serializers
 from django.utils.translation import gettext_lazy as _
 from .models import Job, JobAttachment
 
+# Подтягиваем публичный сериализатор владельца
+from users.serializers import OwnerPublicSerializer
+
 
 class JobSerializer(serializers.ModelSerializer):
     """
-    Сериализатор задания под клиентский визард.
+    Сериализатор задания под клиентский визард и каталог.
     Поддерживает оба типа бюджета и массив навыков.
     """
-    skills = serializers.ListField(
-        child=serializers.CharField(max_length=64),
-        required=False,
-        allow_empty=True
-    )
+skills = serializers.ListField(
+    child=serializers.CharField(max_length=64),
+    required=False,
+    allow_empty=True,
+    allow_null=True,   # <—
+)
+
+def to_representation(self, instance):
+    data = super().to_representation(instance)
+    if data.get("skills") is None:
+        data["skills"] = []
+    return data
+
+    # Вложения и служебные поля
     attachments = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
+
+    # ↓ поля для каталога
+    responses_count = serializers.SerializerMethodField(read_only=True)
+    views_count = serializers.SerializerMethodField(read_only=True)
+    deadline_text = serializers.SerializerMethodField(read_only=True)
+
+    # Владелец задания — публичные поля (id, username, full_name и т.п.)
+    owner = OwnerPublicSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = Job
@@ -31,7 +51,8 @@ class JobSerializer(serializers.ModelSerializer):
             "budget_fixed",
             "budget_min",
             "budget_max",
-            "deadline",
+            "deadline",        # исходное поле оставляем
+            "deadline_text",   # удобное имя для фронта
             "deadline_type",
             "location",
             "remote",
@@ -39,6 +60,9 @@ class JobSerializer(serializers.ModelSerializer):
             "is_active",
             "created_at",
             "updated_at",
+            # счётчики/метрики для каталога:
+            "responses_count",
+            "views_count",
             # вычисляемые/сервисные:
             "attachments",
             "status",
@@ -48,10 +72,51 @@ class JobSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id", "owner", "is_active", "created_at", "updated_at",
             "attachments", "status", "canceled_at", "canceled_reason",
+            "responses_count", "views_count", "deadline_text",
         ]
+
+    # ===== Служебные геттеры =====
 
     def get_status(self, obj: Job) -> str:
         return obj.status
+
+    def get_responses_count(self, obj: Job) -> int:
+        """
+        Сейчас заглушка/аннотация.
+        Если в queryset прилетела аннотация (responses_count / responses_count_annot),
+        используем её. Иначе 0.
+        """
+        return (
+            getattr(obj, "responses_count", None)
+            or getattr(obj, "responses_count_annot", None)
+            or 0
+        )
+
+    def get_views_count(self, obj: Job) -> int:
+        """
+        Аналогично — пока 0, можно заменить на реальный счётчик позже.
+        """
+        return getattr(obj, "views_count", None) or 0
+
+    def get_deadline_text(self, obj: Job) -> str:
+        return obj.deadline or ""
+
+    def get_attachments(self, obj: Job):
+        out = []
+        atts = getattr(obj, "attachments", None)
+        if not atts:
+            return out
+        for att in atts.all():
+            out.append({
+                "id": att.id,
+                "url": getattr(att, "file_url", None),
+                "name": getattr(att, "filename", None),
+                "uploaded_at": getattr(att, "uploaded_at", None),
+            })
+        return out
+
+
+    # ===== Валидация =====
 
     def validate(self, attrs):
         title = attrs.get("title", getattr(self.instance, "title", None))
@@ -107,17 +172,7 @@ class JobSerializer(serializers.ModelSerializer):
 
         return attrs
 
-    def get_attachments(self, obj: Job):
-        # Используем свойства модели для единообразия
-        out = []
-        for att in obj.attachments.all():
-            out.append({
-                "id": att.id,
-                "url": att.file_url,
-                "name": att.filename,
-                "uploaded_at": att.uploaded_at,
-            })
-        return out
+    # ===== Создание =====
 
     def create(self, validated_data):
         """
