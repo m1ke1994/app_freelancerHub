@@ -3,8 +3,6 @@ from __future__ import annotations
 from rest_framework import serializers
 from django.utils.translation import gettext_lazy as _
 from .models import Job, JobAttachment
-
-# Подтягиваем публичный сериализатор владельца
 from users.serializers import OwnerPublicSerializer
 
 
@@ -13,18 +11,14 @@ class JobSerializer(serializers.ModelSerializer):
     Сериализатор задания под клиентский визард и каталог.
     Поддерживает оба типа бюджета и массив навыков.
     """
-skills = serializers.ListField(
-    child=serializers.CharField(max_length=64),
-    required=False,
-    allow_empty=True,
-    allow_null=True,   # <—
-)
 
-def to_representation(self, instance):
-    data = super().to_representation(instance)
-    if data.get("skills") is None:
-        data["skills"] = []
-    return data
+    # ---- Поля ----
+    skills = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        required=False,
+        allow_empty=True,
+        allow_null=True,
+    )
 
     # Вложения и служебные поля
     attachments = serializers.SerializerMethodField(read_only=True)
@@ -51,7 +45,7 @@ def to_representation(self, instance):
             "budget_fixed",
             "budget_min",
             "budget_max",
-            "deadline",        # исходное поле оставляем
+            "deadline",        # исходное поле
             "deadline_text",   # удобное имя для фронта
             "deadline_type",
             "location",
@@ -60,7 +54,7 @@ def to_representation(self, instance):
             "is_active",
             "created_at",
             "updated_at",
-            # счётчики/метрики для каталога:
+            # счётчики/метрики:
             "responses_count",
             "views_count",
             # вычисляемые/сервисные:
@@ -75,17 +69,18 @@ def to_representation(self, instance):
             "responses_count", "views_count", "deadline_text",
         ]
 
-    # ===== Служебные геттеры =====
+    # ===== Представление =====
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if data.get("skills") is None:
+            data["skills"] = []
+        return data
 
+    # ===== Служебные геттеры =====
     def get_status(self, obj: Job) -> str:
         return obj.status
 
     def get_responses_count(self, obj: Job) -> int:
-        """
-        Сейчас заглушка/аннотация.
-        Если в queryset прилетела аннотация (responses_count / responses_count_annot),
-        используем её. Иначе 0.
-        """
         return (
             getattr(obj, "responses_count", None)
             or getattr(obj, "responses_count_annot", None)
@@ -93,9 +88,6 @@ def to_representation(self, instance):
         )
 
     def get_views_count(self, obj: Job) -> int:
-        """
-        Аналогично — пока 0, можно заменить на реальный счётчик позже.
-        """
         return getattr(obj, "views_count", None) or 0
 
     def get_deadline_text(self, obj: Job) -> str:
@@ -115,9 +107,7 @@ def to_representation(self, instance):
             })
         return out
 
-
     # ===== Валидация =====
-
     def validate(self, attrs):
         title = attrs.get("title", getattr(self.instance, "title", None))
         category = attrs.get("category", getattr(self.instance, "category", None))
@@ -166,19 +156,13 @@ def to_representation(self, instance):
             if mn > mx:
                 raise serializers.ValidationError({"budget_min": _("Минимум не может быть больше максимума.")})
             attrs["budget_fixed"] = None
-
         else:
             raise serializers.ValidationError({"budget_type": _("Неверный тип бюджета.")})
 
         return attrs
 
     # ===== Создание =====
-
     def create(self, validated_data):
-        """
-        Проставляем владельца из request.user.
-        Создавать может только authenticated customer.
-        """
         request = self.context.get("request")
         user = getattr(request, "user", None)
 
@@ -195,7 +179,6 @@ def to_representation(self, instance):
 
 
 class JobAttachmentSerializer(serializers.ModelSerializer):
-    # Пишем файл, читаем удобные поля
     file = serializers.FileField(write_only=True)
     url = serializers.SerializerMethodField(read_only=True)
     name = serializers.SerializerMethodField(read_only=True)
@@ -212,5 +195,4 @@ class JobAttachmentSerializer(serializers.ModelSerializer):
         return obj.filename
 
     def create(self, validated_data):
-        # Модель сама заполнит original_name и нормализует имя файла
         return super().create(validated_data)

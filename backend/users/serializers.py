@@ -11,6 +11,7 @@ phone_validator = RegexValidator(
     message='Телефон должен быть в формате +7XXXXXXXXXX (10 цифр после +7).'
 )
 
+
 class RegisterSerializer(serializers.ModelSerializer):
     confirm = serializers.CharField(write_only=True)
     role = serializers.ChoiceField(choices=User.ROLE_CHOICES)
@@ -83,7 +84,24 @@ class ProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "email", "phone", "role", "username", "avatar_url")
 
     def get_avatar_url(self, obj):
+        """
+        Возвращаем абсолютный URL аватара, если он есть.
+        Не обращаемся к .url, пока не проверим, что имя файла задано.
+        """
+        # 1) если в модели есть вычисляемое поле/свойство avatar_url — используем его
         url = getattr(obj, "avatar_url", None)
+
+        # 2) иначе пытаемся взять из ImageFieldFile, но ТОЛЬКО если есть имя
+        if not url:
+            avatar = getattr(obj, "avatar", None)
+            # безопасно проверяем имя файла
+            if avatar is not None and getattr(avatar, "name", ""):
+                try:
+                    url = avatar.url  # здесь уже безопасно пробуем .url
+                except Exception:
+                    url = None
+
+        # 3) делаем абсолютный URL при наличии request
         request = self.context.get("request")
         if url and request is not None and not str(url).startswith("http"):
             return request.build_absolute_uri(url)
@@ -98,11 +116,9 @@ class AvatarUploadSerializer(serializers.ModelSerializer):
     def validate_avatar(self, file):
         if not file:
             raise serializers.ValidationError("Файл не передан.")
-        # content_type иногда пустой в dev — это ок, но проверим по возможности
         ctype = getattr(file, "content_type", "") or ""
         if ctype and not ctype.startswith("image/"):
             raise serializers.ValidationError("Загрузите изображение (PNG/JPG).")
-        # лимит размера, чтобы не забивать память
         if file.size and file.size > 5 * 1024 * 1024:
             raise serializers.ValidationError("Слишком большой файл (макс 5 МБ).")
         return file
@@ -138,7 +154,6 @@ class EmailTokenObtainPairSerializer(serializers.Serializer):
 
 
 # === Публичный сериализатор владельца задания (для вложения в jobs) ===
-# === Публичный сериализатор владельца задания (без жёстких полей) ===
 class OwnerPublicSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
     avatar_url = serializers.SerializerMethodField()
@@ -162,9 +177,22 @@ class OwnerPublicSerializer(serializers.ModelSerializer):
         return name or None
 
     def get_avatar_url(self, obj):
+        """
+        Безопасно получаем URL аватара.
+        Никогда не обращаемся к obj.avatar.url без проверки.
+        """
+        # пробуем вычисляемое/хранимое поле avatar_url
         url = getattr(obj, "avatar_url", None)
-        if not url and hasattr(obj, "avatar") and getattr(obj.avatar, "url", None):
-            url = obj.avatar.url
+
+        if not url:
+            avatar = getattr(obj, "avatar", None)
+            # проверяем, что у файла есть имя: это не триггерит ValueError
+            if avatar is not None and getattr(avatar, "name", ""):
+                try:
+                    url = avatar.url
+                except Exception:
+                    url = None
+
         request = self.context.get("request")
         if url and request is not None and not str(url).startswith("http"):
             return request.build_absolute_uri(url)
