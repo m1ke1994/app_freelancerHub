@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     # Local apps
     "users",
     "jobs",
+    'offer',
 ]
 
 # === CORS (dev: Vite на 5173) ===
