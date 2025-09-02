@@ -1,14 +1,14 @@
 <template>
   <div class="mx-auto max-w-6xl">
     <!-- HERO -->
-    <header
-      class="rounded-2xl border bg-gradient-to-br from-white/85 to-white/40 
+    <header class="rounded-2xl border bg-gradient-to-br from-white/85 to-white/40 
              dark:from-slate-900/70 dark:to-slate-900/30 backdrop-blur 
-             p-4 sm:p-6 ring-1 ring-black/5 dark:ring-white/10 shadow-sm"
-    >
+             p-4 sm:p-6 ring-1 ring-black/5 dark:ring-white/10 shadow-sm">
       <div class="mb-4 flex items-center justify-between">
         <button class="btn-back inline-flex items-center gap-2" @click="goBack">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+          </svg>
           Назад
         </button>
 
@@ -79,37 +79,30 @@
           <template v-else>
             <div v-if="safeProposals.length === 0" class="text-sm text-slate-500">Пока нет откликов</div>
 
-            <div
-              v-for="(p, index) in safeProposals"
-              :key="p?.id ?? ('p-'+index)"
-              class="mb-3 rounded-xl border p-3 sm:p-4 hover:shadow-sm transition-shadow"
-            >
+            <div v-for="(p, index) in safeProposals" :key="p?.id ?? ('p-' + index)"
+              class="mb-3 rounded-xl border p-3 sm:p-4 hover:shadow-sm transition-shadow">
               <div class="flex flex-col gap-3">
                 <!-- Шапка отклика: кто откликнулся -->
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0 flex items-start gap-3">
-                    <img
-                      :src="avatarSrc(p.executor?.avatar_url)"
-                      alt=""
-                      class="h-10 w-10 rounded-full border object-cover"
-                      @error="onImgError"
-                    />
+
                     <div class="min-w-0">
                       <div class="flex flex-wrap items-center gap-2">
-                        <span class="font-semibold truncate">
-                          {{ p.executor?.full_name || ('Исполнитель #' + (p.executor?.id ?? '—')) }}
+                        <span class="font-semibold text-green-700">
+                          {{ p.executor?.full_name
+                            ? p.executor.full_name.toUpperCase()
+                            : ('Исполнитель #' + (p.executor?.id ?? '—')).toUpperCase() }}
                         </span>
-                        <span
-                          class="chip"
-                          :class="statusClass(p.status)"
-                          :title="'Статус отклика: ' + statusLabel(p.status)"
-                        >
+                        <span class="chip" :class="statusClass(p.status)"
+                          :title="'Статус отклика: ' + statusLabel(p.status)">
                           {{ statusLabel(p.status) }}
                         </span>
-                        <span v-if="isVerified(p.executor)" class="chip chip--indigo" title="Проверенный исполнитель">✔ Проверен</span>
+                        <span v-if="isVerified(p.executor)" class="chip chip--indigo" title="Проверенный исполнитель">✔
+                          Проверен</span>
                       </div>
 
-                      <div class="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <div
+                        class="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-3 gap-y-1">
                         <span v-if="isFiniteNum(p.executor?.rating)">
                           ★ {{ toFixedSafe(p.executor?.rating, 1) }} <span class="opacity-60">/ 5</span>
                         </span>
@@ -124,7 +117,8 @@
                   </div>
 
                   <div class="flex shrink-0 items-center gap-2">
-                    <button class="btn ghost" @click="onShortlist(p)" :disabled="actionBusy === p?.id">Шорт-лист</button>
+                    <button class="btn ghost" @click="onShortlist(p)"
+                      :disabled="actionBusy === p?.id">Шорт-лист</button>
                     <button class="btn primary" @click="onAccept(p)" :disabled="actionBusy === p?.id">Принять</button>
                     <button class="btn danger" @click="onReject(p)" :disabled="actionBusy === p?.id">Отклонить</button>
                   </div>
@@ -174,7 +168,8 @@
 
               <div class="flex gap-2">
                 <button class="btn ghost" @click="editMode = true">Изменить</button>
-                <button class="btn danger" @click="removeMyProposal" :disabled="actionBusy === myProposal?.id">Удалить</button>
+                <button class="btn danger" @click="removeMyProposal"
+                  :disabled="actionBusy === myProposal?.id">Удалить</button>
               </div>
             </div>
 
@@ -182,12 +177,14 @@
             <div v-if="!myProposal || editMode" class="space-y-4">
               <div>
                 <label class="label">Сопроводительное письмо</label>
-                <textarea v-model="form.cover_letter" rows="5" class="input" placeholder="Коротко опишите опыт и подход…"></textarea>
+                <textarea v-model="form.cover_letter" rows="5" class="input"
+                  placeholder="Коротко опишите опыт и подход…"></textarea>
               </div>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label class="label">Ставка</label>
-                  <input v-model.number="form.bid_amount" type="number" min="0" class="input" placeholder="Напр. 30000" />
+                  <input v-model.number="form.bid_amount" type="number" min="0" class="input"
+                    placeholder="Напр. 30000" />
                 </div>
                 <div>
                   <label class="label">Срок (дней)</label>
@@ -213,8 +210,14 @@
         <div class="rounded-2xl border p-4 sm:p-6">
           <h3 class="mb-2 font-semibold">Детали</h3>
           <dl class="text-sm space-y-2">
-            <div class="flex justify-between"><dt class="text-slate-500">Бюджет</dt><dd>{{ hasBudget ? budgetDisplay.value : '—' }}</dd></div>
-            <div class="flex justify-between"><dt class="text-slate-500">Срочность</dt><dd>{{ task?.urgent ? 'Срочно' : 'Обычная' }}</dd></div>
+            <div class="flex justify-between">
+              <dt class="text-slate-500">Бюджет</dt>
+              <dd>{{ hasBudget ? budgetDisplay.value : '—' }}</dd>
+            </div>
+            <div class="flex justify-between">
+              <dt class="text-slate-500">Срочность</dt>
+              <dd>{{ task?.urgent ? 'Срочно' : 'Обычная' }}</dd>
+            </div>
           </dl>
         </div>
 
@@ -227,13 +230,8 @@
           <div v-if="proposalsLoading" class="text-sm text-slate-500">Загрузка…</div>
           <div v-else-if="!safeProposals.length" class="text-sm text-slate-500">Пока пусто</div>
           <ul v-else class="space-y-2">
-            <li v-for="(p, index) in safeProposals" :key="'mini-'+(p?.id ?? index)" class="flex items-center gap-3">
-              <img
-                :src="avatarSrc(p.executor?.avatar_url)"
-                class="h-8 w-8 rounded-full border object-cover"
-                alt=""
-                @error="onImgError"
-              />
+            <li v-for="(p, index) in safeProposals" :key="'mini-' + (p?.id ?? index)" class="flex items-center gap-3">
+
               <div class="min-w-0">
                 <div class="truncate text-sm font-medium">
                   {{ p.executor?.full_name || ('Исполнитель #' + (p.executor?.id ?? '—')) }}
@@ -500,7 +498,7 @@ function statusClass(s) {
     'chip--rose': s === 'rejected',
   }
 }
-function isFiniteNum(v){ return Number.isFinite(Number(v)) }
+function isFiniteNum(v) { return Number.isFinite(Number(v)) }
 
 /* ===== АВАТАРЫ / ПРОФИЛЬ ИСПОЛНИТЕЛЯ ===== */
 function isVerified(ex) {
@@ -533,12 +531,7 @@ function avatarSrc(url) {
     return joinUrl(API_BASE, raw)
   }
 }
-function onImgError(e) {
-  const img = e?.target
-  if (img && img.src !== placeholderAvatar()) {
-    img.src = placeholderAvatar()
-  }
-}
+
 
 function skills(p) {
   const s = p?.executor?.skills || p?.skills || []
@@ -573,22 +566,63 @@ onMounted(async () => {
 
 <style scoped>
 /* утилиты под tailwind-классы из проекта */
-.btn-back { @apply text-slate-700 dark:text-slate-200 hover:text-indigo-600 transition; }
-.btn { @apply inline-flex items-center justify-center rounded-xl px-3 py-2 text-sm border; }
-.btn.primary { @apply bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700; }
-.btn.ghost { @apply bg-transparent text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50/60 dark:hover:bg-slate-800/40; }
-.btn.danger { @apply bg-rose-600 text-white border-rose-600 hover:bg-rose-700; }
+.btn-back {
+  @apply text-slate-700 dark:text-slate-200 hover:text-indigo-600 transition;
+}
 
-.chip { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs border; }
-.chip.warn { @apply bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-400/15 dark:text-amber-300; }
-.chip--amber { @apply bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-400/15 dark:text-amber-300; }
-.chip--slate { @apply bg-slate-100 text-slate-700 border-slate-200 dark:border-slate-700 dark:text-slate-300 dark:bg-slate-400/15; }
-.chip--indigo { @apply bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-400/15 dark:text-indigo-300; }
-.chip--emerald { @apply bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-400/15 dark:text-emerald-300; }
-.chip--rose { @apply bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-400/15 dark:text-rose-300; }
+.btn {
+  @apply inline-flex items-center justify-center rounded-xl px-3 py-2 text-sm border;
+}
 
-.input { @apply w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500/40; }
-.label { @apply mb-1 block text-sm text-slate-600 dark:text-slate-300; }
+.btn.primary {
+  @apply bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700;
+}
 
-.price-badge { @apply inline-flex items-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300 px-2 py-1 text-xs border border-emerald-200; }
+.btn.ghost {
+  @apply bg-transparent text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50/60 dark:hover:bg-slate-800/40;
+}
+
+.btn.danger {
+  @apply bg-rose-600 text-white border-rose-600 hover:bg-rose-700;
+}
+
+.chip {
+  @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs border;
+}
+
+.chip.warn {
+  @apply bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-400/15 dark:text-amber-300;
+}
+
+.chip--amber {
+  @apply bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-400/15 dark:text-amber-300;
+}
+
+.chip--slate {
+  @apply bg-slate-100 text-slate-700 border-slate-200 dark:border-slate-700 dark:text-slate-300 dark:bg-slate-400/15;
+}
+
+.chip--indigo {
+  @apply bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-400/15 dark:text-indigo-300;
+}
+
+.chip--emerald {
+  @apply bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-400/15 dark:text-emerald-300;
+}
+
+.chip--rose {
+  @apply bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-400/15 dark:text-rose-300;
+}
+
+.input {
+  @apply w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500/40;
+}
+
+.label {
+  @apply mb-1 block text-sm text-slate-600 dark:text-slate-300;
+}
+
+.price-badge {
+  @apply inline-flex items-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300 px-2 py-1 text-xs border border-emerald-200;
+}
 </style>
