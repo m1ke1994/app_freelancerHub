@@ -25,7 +25,7 @@
           {{ task?.title || '—' }}
         </h1>
         <p class="text-slate-600 dark:text-slate-300 text-sm sm:text-base">
-          #{{ task?.id || '—' }}
+          #{{ task?.id ?? '—' }}
         </p>
       </div>
     </header>
@@ -62,7 +62,7 @@
           </p>
         </div>
 
-        <!-- Владелец: отклики (видно, кто откликнулся) -->
+        <!-- Владелец: отклики -->
         <div v-if="isOwner" class="rounded-2xl border p-4 sm:p-6">
           <div class="mb-4 flex items-center justify-between gap-3">
             <h2 class="text-lg font-semibold">Отклики исполнителей</h2>
@@ -77,15 +77,15 @@
           <div v-else-if="proposalsError" class="text-sm text-rose-600">{{ proposalsError }}</div>
 
           <template v-else>
-            <div v-if="proposals.length === 0" class="text-sm text-slate-500">Пока нет откликов</div>
+            <div v-if="safeProposals.length === 0" class="text-sm text-slate-500">Пока нет откликов</div>
 
             <div
-              v-for="p in proposals"
-              :key="p.id"
+              v-for="(p, index) in safeProposals"
+              :key="p?.id ?? ('p-'+index)"
               class="mb-3 rounded-xl border p-3 sm:p-4 hover:shadow-sm transition-shadow"
             >
               <div class="flex flex-col gap-3">
-                <!-- Шапка отклика: ИСПОЛНИТЕЛЬ (кто откликнулся) -->
+                <!-- Шапка отклика: кто откликнулся -->
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0 flex items-start gap-3">
                     <img
@@ -96,7 +96,7 @@
                     <div class="min-w-0">
                       <div class="flex flex-wrap items-center gap-2">
                         <span class="font-semibold truncate">
-                          {{ p.executor?.full_name || `Исполнитель #${p.executor?.id || '—'}` }}
+                          {{ p.executor?.full_name || ('Исполнитель #' + (p.executor?.id ?? '—')) }}
                         </span>
                         <span
                           class="chip"
@@ -109,10 +109,10 @@
                       </div>
 
                       <div class="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <span v-if="p.executor?.rating != null">
+                        <span v-if="isFiniteNum(p.executor?.rating)">
                           ★ {{ toFixedSafe(p.executor?.rating, 1) }} <span class="opacity-60">/ 5</span>
                         </span>
-                        <span v-if="p.executor?.reviews_count != null">
+                        <span v-if="isFiniteNum(p.executor?.reviews_count)">
                           {{ p.executor.reviews_count }} отзыв(ов)
                         </span>
                         <span v-if="p.created_at" :title="isoToLocal(p.created_at)">
@@ -123,18 +123,16 @@
                   </div>
 
                   <div class="flex shrink-0 items-center gap-2">
-                    <button class="btn ghost" @click="onShortlist(p)" :disabled="actionBusy === p.id">Шорт-лист</button>
-                    <button class="btn primary" @click="onAccept(p)" :disabled="actionBusy === p.id">Принять</button>
-                    <button class="btn danger" @click="onReject(p)" :disabled="actionBusy === p.id">Отклонить</button>
+                    <button class="btn ghost" @click="onShortlist(p)" :disabled="actionBusy === p?.id">Шорт-лист</button>
+                    <button class="btn primary" @click="onAccept(p)" :disabled="actionBusy === p?.id">Принять</button>
+                    <button class="btn danger" @click="onReject(p)" :disabled="actionBusy === p?.id">Отклонить</button>
                   </div>
                 </div>
 
-                <!-- Текст письма -->
                 <div v-if="p.cover_letter" class="text-sm whitespace-pre-wrap text-slate-700 dark:text-slate-200">
                   {{ p.cover_letter }}
                 </div>
 
-                <!-- Деньги/срок + навыки -->
                 <div class="flex flex-wrap items-center gap-3 text-sm">
                   <span>Ставка: <b>{{ money(p.bid_amount) }}</b></span>
                   <span v-if="p.days">• Срок: <b>{{ p.days }} дн.</b></span>
@@ -148,7 +146,7 @@
           </template>
         </div>
 
-        <!-- Исполнитель: мой отклик (создание/редактирование/удаление) -->
+        <!-- Исполнитель: мой отклик -->
         <div v-if="isExecutor" class="rounded-2xl border p-4 sm:p-6">
           <h2 class="mb-3 text-lg font-semibold">Мой отклик</h2>
 
@@ -156,7 +154,6 @@
           <div v-else-if="myProposalError" class="text-sm text-rose-600">{{ myProposalError }}</div>
 
           <template v-else>
-            <!-- уже подан -->
             <div v-if="myProposal && !editMode" class="space-y-3">
               <div class="flex flex-wrap items-center gap-2 text-sm">
                 <span>Статус:</span>
@@ -175,11 +172,10 @@
 
               <div class="flex gap-2">
                 <button class="btn ghost" @click="editMode = true">Изменить</button>
-                <button class="btn danger" @click="removeMyProposal" :disabled="actionBusy === myProposal.id">Удалить</button>
+                <button class="btn danger" @click="removeMyProposal" :disabled="actionBusy === myProposal?.id">Удалить</button>
               </div>
             </div>
 
-            <!-- нет отклика ИЛИ режим редактирования -->
             <div v-if="!myProposal || editMode" class="space-y-4">
               <div>
                 <label class="label">Сопроводительное письмо</label>
@@ -219,20 +215,20 @@
           </dl>
         </div>
 
-        <!-- КТО ОТКЛИКНУЛСЯ: компактный список (для владельца) -->
+        <!-- Кто откликнулся: компактный список -->
         <div v-if="isOwner" class="rounded-2xl border p-4 sm:p-6">
           <div class="mb-2 flex items-center justify-between">
             <h3 class="font-semibold">Кто откликнулся</h3>
-            <span class="text-xs text-slate-500" v-if="proposals.length">{{ proposals.length }}</span>
+            <span class="text-xs text-slate-500" v-if="safeProposals.length">{{ safeProposals.length }}</span>
           </div>
           <div v-if="proposalsLoading" class="text-sm text-slate-500">Загрузка…</div>
-          <div v-else-if="!proposals.length" class="text-sm text-slate-500">Пока пусто</div>
+          <div v-else-if="!safeProposals.length" class="text-sm text-slate-500">Пока пусто</div>
           <ul v-else class="space-y-2">
-            <li v-for="p in proposals" :key="'mini-'+p.id" class="flex items-center gap-3">
+            <li v-for="(p, index) in safeProposals" :key="'mini-'+(p?.id ?? index)" class="flex items-center gap-3">
               <img :src="avatar(p.executor?.avatar_url)" class="h-8 w-8 rounded-full border object-cover" alt="" />
               <div class="min-w-0">
                 <div class="truncate text-sm font-medium">
-                  {{ p.executor?.full_name || `Исполнитель #${p.executor?.id || '—'}` }}
+                  {{ p.executor?.full_name || ('Исполнитель #' + (p.executor?.id ?? '—')) }}
                 </div>
                 <div class="text-xs text-slate-500">
                   {{ money(p.bid_amount) }} <span v-if="p.days">• {{ p.days }} дн.</span>
@@ -268,7 +264,7 @@ const router = useRouter()
 const userStore = useUserStore()
 const jobId = computed(() => Number(route.params.id))
 
-/* ==== TASK LOAD (локально, без зависимости от внешнего слоя) ==== */
+/* ==== TASK LOAD ==== */
 const API_BASE = (import.meta?.env?.VITE_API_BASE || import.meta?.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
 const task = ref(null)
 const loading = ref(true)
@@ -296,8 +292,8 @@ const jobOwnerIds = computed(() => {
   const u = raw && typeof raw === 'object' ? (raw.id || raw.user_id || raw.pk) : raw
   return [u].filter(Boolean)
 })
-const isOwner = computed(() => me.value && jobOwnerIds.value.includes(me.value.id))
-const isExecutor = computed(() => me.value && !isOwner.value)
+const isOwner = computed(() => !!(me.value && jobOwnerIds.value.includes(me.value.id)))
+const isExecutor = computed(() => !!(me.value && !jobOwnerIds.value.includes(me.value.id)))
 
 /* ==== BUDGET ==== */
 const hasBudget = computed(() => {
@@ -319,13 +315,20 @@ const proposalsError = ref('')
 const stats = ref(null)
 const actionBusy = ref(null)
 
+/** Преобразование любого формата ответа в массив + фильтр мусора */
+function toArray(data) {
+  const arr = Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : [])
+  return arr.filter((p) => p && typeof p === 'object')
+}
+const safeProposals = computed(() => toArray(proposals.value))
+
 async function fetchProposals() {
   if (!isOwner.value) return
   proposalsLoading.value = true
   proposalsError.value = ''
   try {
     const data = await listProposals({ job: jobId.value })
-    proposals.value = data || []
+    proposals.value = toArray(data)
     stats.value = await proposalsStats(jobId.value)
   } catch (e) {
     proposalsError.value = e.message || 'Ошибка загрузки откликов'
@@ -336,8 +339,9 @@ async function fetchProposals() {
 
 async function onShortlist(p) {
   try {
-    actionBusy.value = p.id
-    await shortlistProposal(p.id)
+    actionBusy.value = p?.id ?? null
+    if (!actionBusy.value) return
+    await shortlistProposal(actionBusy.value)
     await fetchProposals()
   } catch (e) {
     alert(e.message || 'Не удалось добавить в шорт-лист')
@@ -347,8 +351,9 @@ async function onShortlist(p) {
 }
 async function onAccept(p) {
   try {
-    actionBusy.value = p.id
-    await acceptProposal(p.id)
+    actionBusy.value = p?.id ?? null
+    if (!actionBusy.value) return
+    await acceptProposal(actionBusy.value)
     await fetchProposals()
   } catch (e) {
     alert(e.message || 'Не удалось принять отклик')
@@ -358,8 +363,9 @@ async function onAccept(p) {
 }
 async function onReject(p) {
   try {
-    actionBusy.value = p.id
-    await rejectProposal(p.id)
+    actionBusy.value = p?.id ?? null
+    if (!actionBusy.value) return
+    await rejectProposal(actionBusy.value)
     await fetchProposals()
   } catch (e) {
     alert(e.message || 'Не удалось отклонить отклик')
@@ -384,10 +390,12 @@ async function fetchMyProposal() {
   myProposalError.value = ''
   try {
     const data = await listProposals({ job: jobId.value })
-    const mine = Array.isArray(data)
-      ? data.find(p => p.job === jobId.value && p.executor?.id === me.value.id)
-      : null
-    myProposal.value = mine || null
+    const list = toArray(data)
+    const mine = list.find(p =>
+      Number(p?.job) === jobId.value &&
+      Number(p?.executor?.id) === Number(me.value?.id)
+    ) || null
+    myProposal.value = mine
     if (myProposal.value) {
       form.value = {
         cover_letter: myProposal.value.cover_letter || '',
@@ -413,7 +421,7 @@ async function submitProposal() {
       bid_amount: Number(form.value.bid_amount || 0),
       days: form.value.days ? Number(form.value.days) : null,
     }
-    if (myProposal.value) {
+    if (myProposal.value?.id) {
       await updateProposal(myProposal.value.id, payload)
       editMode.value = false
     } else {
@@ -430,11 +438,11 @@ async function submitProposal() {
 }
 
 async function removeMyProposal() {
-  if (!myProposal.value) return
+  if (!myProposal.value?.id) return
   if (!confirm('Удалить ваш отклик?')) return
   try {
     actionBusy.value = myProposal.value.id
-    await deleteProposal(myProposal.value.id)
+    await deleteProposal(actionBusy.value)
     myProposal.value = null
     editMode.value = true
     await fetchProposals()
@@ -462,7 +470,8 @@ function goBack() {
   else router.push({ name: 'tasks' })
 }
 function money(v) {
-  return new Intl.NumberFormat('ru-RU').format(Number(v || 0)) + ' ₽'
+  const n = Number(v || 0)
+  return new Intl.NumberFormat('ru-RU').format(Number.isFinite(n) ? n : 0) + ' ₽'
 }
 function statusLabel(s) {
   const map = {
@@ -483,7 +492,7 @@ function statusClass(s) {
     'chip--rose': s === 'rejected',
   }
 }
-
+function isFiniteNum(v){ return Number.isFinite(Number(v)) }
 function avatar(url) {
   return (url && String(url).trim()) || 'https://api.dicebear.com/7.x/identicon/svg?seed=executor'
 }
@@ -522,7 +531,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* простые утилиты под tailwind-классы из проекта */
+/* утилиты под tailwind-классы из проекта */
 .btn-back { @apply text-slate-700 dark:text-slate-200 hover:text-indigo-600 transition; }
 .btn { @apply inline-flex items-center justify-center rounded-xl px-3 py-2 text-sm border; }
 .btn.primary { @apply bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700; }
