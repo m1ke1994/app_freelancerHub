@@ -458,7 +458,7 @@ const filteredJobs = computed(() => jobs.value)
                       {{ formatBudget(job.budget) }}
                     </div>
 
-                    <div class="text-sm text-gray-700 dark:text-gray-300">
+                    <div class="text-sm font-bold text-green-700 dark:text-green-700">
                       {{ job.clientName.toUpperCase() }}
                     </div>
                     <!-- <div class="text-xs text-gray-500 dark:text-gray-400 ">
