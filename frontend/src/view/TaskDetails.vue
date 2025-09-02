@@ -62,7 +62,7 @@
           </p>
         </div>
 
-        <!-- Владелец: отклики -->
+        <!-- Владелец: отклики (видно, кто откликнулся) -->
         <div v-if="isOwner" class="rounded-2xl border p-4 sm:p-6">
           <div class="mb-4 flex items-center justify-between gap-3">
             <h2 class="text-lg font-semibold">Отклики исполнителей</h2>
@@ -89,9 +89,10 @@
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0 flex items-start gap-3">
                     <img
-                      :src="avatar(p.executor?.avatar_url)"
+                      :src="avatarSrc(p.executor?.avatar_url)"
                       alt=""
                       class="h-10 w-10 rounded-full border object-cover"
+                      @error="onImgError"
                     />
                     <div class="min-w-0">
                       <div class="flex flex-wrap items-center gap-2">
@@ -146,7 +147,7 @@
           </template>
         </div>
 
-        <!-- Исполнитель: мой отклик -->
+        <!-- Исполнитель: мой отклик (создание/редактирование/удаление) -->
         <div v-if="isExecutor" class="rounded-2xl border p-4 sm:p-6">
           <h2 class="mb-3 text-lg font-semibold">Мой отклик</h2>
 
@@ -154,6 +155,7 @@
           <div v-else-if="myProposalError" class="text-sm text-rose-600">{{ myProposalError }}</div>
 
           <template v-else>
+            <!-- уже подан -->
             <div v-if="myProposal && !editMode" class="space-y-3">
               <div class="flex flex-wrap items-center gap-2 text-sm">
                 <span>Статус:</span>
@@ -176,6 +178,7 @@
               </div>
             </div>
 
+            <!-- нет отклика / режим редактирования -->
             <div v-if="!myProposal || editMode" class="space-y-4">
               <div>
                 <label class="label">Сопроводительное письмо</label>
@@ -225,7 +228,12 @@
           <div v-else-if="!safeProposals.length" class="text-sm text-slate-500">Пока пусто</div>
           <ul v-else class="space-y-2">
             <li v-for="(p, index) in safeProposals" :key="'mini-'+(p?.id ?? index)" class="flex items-center gap-3">
-              <img :src="avatar(p.executor?.avatar_url)" class="h-8 w-8 rounded-full border object-cover" alt="" />
+              <img
+                :src="avatarSrc(p.executor?.avatar_url)"
+                class="h-8 w-8 rounded-full border object-cover"
+                alt=""
+                @error="onImgError"
+              />
               <div class="min-w-0">
                 <div class="truncate text-sm font-medium">
                   {{ p.executor?.full_name || ('Исполнитель #' + (p.executor?.id ?? '—')) }}
@@ -493,12 +501,45 @@ function statusClass(s) {
   }
 }
 function isFiniteNum(v){ return Number.isFinite(Number(v)) }
-function avatar(url) {
-  return (url && String(url).trim()) || 'https://api.dicebear.com/7.x/identicon/svg?seed=executor'
-}
+
+/* ===== АВАТАРЫ / ПРОФИЛЬ ИСПОЛНИТЕЛЯ ===== */
 function isVerified(ex) {
   return Boolean(ex?.verified || ex?.is_verified || ex?.kyc_verified)
 }
+function placeholderAvatar() {
+  return 'https://api.dicebear.com/7.x/identicon/svg?seed=executor'
+}
+function isAbsoluteUrl(u) {
+  return /^https?:\/\//i.test(String(u || ''))
+}
+function joinUrl(base, path) {
+  const b = String(base || '').replace(/\/+$/, '')
+  const p = String(path || '').replace(/^\/+/, '')
+  return `${b}/${p}`
+}
+function avatarSrc(url) {
+  if (!url) return placeholderAvatar()
+  const raw = String(url)
+  if (isAbsoluteUrl(raw)) return raw
+  try {
+    const [path, query = ''] = raw.split('?')
+    const encoded = path
+      .split('/')
+      .map(seg => (seg && seg !== 'media' ? encodeURIComponent(seg) : seg))
+      .join('/')
+    const full = joinUrl(API_BASE, encoded) + (query ? `?${query}` : '')
+    return full
+  } catch {
+    return joinUrl(API_BASE, raw)
+  }
+}
+function onImgError(e) {
+  const img = e?.target
+  if (img && img.src !== placeholderAvatar()) {
+    img.src = placeholderAvatar()
+  }
+}
+
 function skills(p) {
   const s = p?.executor?.skills || p?.skills || []
   return Array.isArray(s) ? s.slice(0, 6) : []
