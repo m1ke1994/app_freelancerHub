@@ -1,6 +1,8 @@
 <!-- src/view/JobsCatalog.vue -->
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue"
+import { useUserStore } from "@/store/userStore"
+import { listProposals } from "@/api/proposalsApi"
 
 /* === CONFIG === */
 const API_BASE = (import.meta?.env?.VITE_API_BASE || "http://127.0.0.1:8000").replace(/\/$/, "")
@@ -23,6 +25,10 @@ const categories = ref([])
 const jobs = ref([])
 const total = ref(0)
 const page = ref(1)
+
+/* === Пользователь === */
+const userStore = useUserStore()
+const me = computed(() => userStore?.user || null)
 
 /* === Мобильная панель фильтров === */
 const filtersOpen = ref(false)
@@ -126,6 +132,35 @@ function formatBudget(b) {
   return "не указан"
 }
 
+/* === Отклики по моим задачам (для каталога) === */
+const proposalsByJob = ref({}) // { [jobId]: { count: number, names: string[] } }
+
+async function fetchOwnedJobsProposals() {
+  try {
+    const myId = me.value?.id
+    if (!myId) { proposalsByJob.value = {}; return }
+    const myJobs = jobs.value.filter(j => j.ownerId === myId).map(j => j.id)
+    if (myJobs.length === 0) { proposalsByJob.value = {}; return }
+
+    const entries = await Promise.all(myJobs.map(async (id) => {
+      try {
+        const data = await listProposals({ job: id }) // владелец видит все отклики
+        const arr = Array.isArray(data) ? data : []
+        const names = arr.slice(0, 3).map(p =>
+          (p.executor?.full_name?.trim?.()) ||
+          (p.executor?.id ? `Исполнитель #${p.executor.id}` : "Исполнитель")
+        )
+        return [id, { count: arr.length, names }]
+      } catch {
+        return [id, { count: 0, names: [] }]
+      }
+    }))
+    proposalsByJob.value = Object.fromEntries(entries)
+  } catch {
+    proposalsByJob.value = {}
+  }
+}
+
 /* ===== API ===== */
 async function fetchCategories() {
   try {
@@ -162,6 +197,7 @@ async function fetchJobs() {
 
       return {
         id: it.id,
+        ownerId: (it.owner?.id ?? it.customer?.id ?? it.user?.id ?? it.author?.id ?? it.created_by?.id ?? it.client?.id ?? null),
         title: it.title,
         deadline: it.deadline_text || it.deadline || "",
         location: it.location || (it.remote ? "Удаленно" : ""),
@@ -179,10 +215,14 @@ async function fetchJobs() {
         remote: !!it.remote,
       }
     })
+
+    // Подтянуть отклики по задачам, владельцем которых является текущий пользователь
+    await fetchOwnedJobsProposals()
   } catch (e) {
     error.value = e?.message || "Ошибка загрузки"
     jobs.value = []
     total.value = 0
+    proposalsByJob.value = {}
   } finally {
     loading.value = false
   }
@@ -193,6 +233,13 @@ let t = null
 function refetchDebounced() {
   clearTimeout(t)
   t = setTimeout(() => { page.value = 1; fetchJobs() }, 250)
+}
+
+/* === Навигация к задаче === */
+function goToJob(id) {
+  window.scrollTo(0, 0)
+  // если у тебя роутер с именем маршрута — можешь заменить на: router.push({ name: 'JobDetails', params: { id } })
+  location.assign(`/jobs/${id}`)
 }
 
 onMounted(() => {
@@ -411,7 +458,10 @@ const filteredJobs = computed(() => jobs.value)
                 <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2 mb-1.5 sm:mb-2">
-                      <h3 class="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white hover:text-indigo-600 cursor-pointer line-clamp-2">
+                      <h3
+                        class="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white hover:text-indigo-600 cursor-pointer line-clamp-2"
+                        @click="goToJob(job.id)"
+                      >
                         {{ job.title }}
                       </h3>
                       <span
@@ -441,7 +491,9 @@ const filteredJobs = computed(() => jobs.value)
                           <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
                           <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
                         </svg>
-                        <span class="truncate">{{ job.responses }} откликов</span>
+                        <span class="truncate">
+                          {{ (proposalsByJob[job.id]?.count ?? job.responses) }} откликов
+                        </span>
                       </div>
                       <div class="flex items-center gap-1">
                         <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -461,9 +513,6 @@ const filteredJobs = computed(() => jobs.value)
                     <div class="text-sm font-bold text-green-700 dark:text-green-700">
                       {{ job.clientName.toUpperCase() }}
                     </div>
-                    <!-- <div class="text-xs text-gray-500 dark:text-gray-400 ">
-                      @{{ job.clientUsername }}
-                    </div> -->
 
                     <div class="flex md:justify-end items-center gap-1 text-sm text-yellow-500 mt-1" v-if="job.clientRating > 0">
                       <span aria-hidden="true">★</span>
@@ -491,8 +540,29 @@ const filteredJobs = computed(() => jobs.value)
 
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div class="flex items-center gap-2">
+                    <!-- Предпросмотр имён откликнувшихся: показываем только для задач владельца -->
+                    <template v-if="me && job.ownerId === me.id && (proposalsByJob[job.id]?.names?.length)">
+                      <div class="hidden sm:flex items-center gap-2">
+                        <span class="text-xs text-gray-500 dark:text-gray-400">Откликнулись:</span>
+                        <span
+                          v-for="name in proposalsByJob[job.id].names"
+                          :key="name"
+                          class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                        >
+                          {{ name }}
+                        </span>
+                        <span
+                          v-if="(proposalsByJob[job.id]?.count || 0) > proposalsByJob[job.id].names.length"
+                          class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                        >
+                          +{{ proposalsByJob[job.id].count - proposalsByJob[job.id].names.length }}
+                        </span>
+                      </div>
+                    </template>
+
                     <button
                       class="inline-flex items-center gap-1 px-3 py-2 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition"
+                      @click="goToJob(job.id)"
                     >
                       Откликнуться
                       <svg class="w-4 h-4 ml-1" viewBox="0 0 24 24" fill="none" stroke="currentColor">

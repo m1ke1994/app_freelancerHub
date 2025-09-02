@@ -10,12 +10,7 @@ const routes = [
   { path: '/create-task', name: 'create-task', component: () => import('@/view/CreateTasks.vue'), meta: { title: 'Разместить задание', guest: true } },
   { path: '/register', name: 'register', component: () => import('@/view/RegisterPage.vue'), meta: { title: 'Регистрация', guest: true } },
   { path: '/how-it-works', name: 'how-it-works', component: () => import('@/view/HowItWorks.vue'), meta: { title: 'Как это работает', guest: true } },
-{
-  path: '/jobs/:id',
-  name: 'JobDetails',
-  component: () => import('@/view/TaskDetails.vue'), // или корректный путь
-  props: true
-},
+{ path: '/jobs/:id', name: 'JobDetails', component: () => import('@/view/TaskDetails.vue') },
   // приватные
   { path: '/dashboard/profile', name: 'profile', component: () => import('@/view/FreelancerProfile.vue'), meta: { title: 'Профиль фрилансера', auth: true } },
   { path: '/dashboard/customer-profile', name: 'customer-profile', component: () => import('@/view/CustomerProfile.vue'), meta: { title: 'Анкета заказчика', auth: true } },

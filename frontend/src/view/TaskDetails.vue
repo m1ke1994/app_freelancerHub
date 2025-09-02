@@ -1,42 +1,32 @@
 <template>
   <div class="mx-auto max-w-6xl">
-    <!-- HERO / HEADER -->
+    <!-- HERO -->
     <header
       class="rounded-2xl border bg-gradient-to-br from-white/85 to-white/40 
              dark:from-slate-900/70 dark:to-slate-900/30 backdrop-blur 
              p-4 sm:p-6 ring-1 ring-black/5 dark:ring-white/10 shadow-sm"
     >
       <div class="mb-4 flex items-center justify-between">
-        <!-- Назад (подсвеченная) -->
-        <button
-          class="btn-back inline-flex items-center gap-2"
-          @click="goBack"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-          </svg>
+        <button class="btn-back inline-flex items-center gap-2" @click="goBack">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
           Назад
         </button>
-        <!-- Справа ничего лишнего -->
-      </div>
 
-      <!-- Заголовок, статус и цена -->
-      <div class="flex flex-col gap-3">
-        <h1 class="truncate text-2xl sm:text-3xl font-bold tracking-tight">
-          {{ task?.title || 'Загрузка…' }}
-        </h1>
-
-        <div class="flex flex-wrap items-center gap-2">
-          <span :class="['status-chip', statusMeta.cls]">{{ statusMeta.label }}</span>
-          <span v-if="task?.category" class="chip">{{ task.category }}</span>
-          <span v-if="task?.remote" class="chip">Удалённо</span>
+        <div class="flex items-center gap-2">
           <span v-if="task?.urgent" class="chip warn">Срочно</span>
-
-          <!-- Бюджет — сразу в шапке, хорошо заметный -->
           <span v-if="hasBudget" class="price-badge" :title="budgetDisplay.title">
             {{ budgetDisplay.value }}
           </span>
         </div>
+      </div>
+
+      <div class="flex flex-col gap-2">
+        <h1 class="text-2xl sm:text-3xl font-semibold leading-tight">
+          {{ task?.title || '—' }}
+        </h1>
+        <p class="text-slate-600 dark:text-slate-300 text-sm sm:text-base">
+          #{{ task?.id || '—' }}
+        </p>
       </div>
     </header>
 
@@ -45,284 +35,510 @@
       <div class="md:col-span-2 space-y-3">
         <div class="h-7 w-1/2 animate-pulse rounded bg-slate-200 dark:bg-slate-700"></div>
         <div class="h-32 animate-pulse rounded-2xl bg-slate-200 dark:bg-slate-700"></div>
-        <div class="h-48 animate-pulse rounded-2xl bg-slate-200 dark:bg-slate-700"></div>
       </div>
-      <div class="space-y-3">
-        <div class="h-7 w-1/2 animate-pulse rounded bg-slate-200 dark:bg-slate-700"></div>
-        <div class="h-56 animate-pulse rounded-2xl bg-slate-200 dark:bg-slate-700"></div>
-      </div>
+      <aside class="space-y-3">
+        <div class="h-7 w-1/3 animate-pulse rounded bg-slate-200 dark:bg-slate-700"></div>
+        <div class="h-32 animate-pulse rounded-2xl bg-slate-200 dark:bg-slate-700"></div>
+      </aside>
     </section>
 
     <!-- ERROR -->
-    <section v-else-if="error" class="mt-6 rounded-2xl border border-rose-200 bg-rose-50/80 p-4 text-rose-700 dark:border-rose-400/25 dark:bg-rose-500/10 dark:text-rose-200">
-      <div class="font-semibold">Не удалось загрузить задание</div>
-      <div class="text-sm opacity-90">{{ error }}</div>
-      <button class="btn-danger mt-3" @click="fetchTask">Повторить</button>
+    <section v-else-if="error" class="mt-6">
+      <div class="rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50/80 dark:bg-rose-900/20 p-4">
+        <div class="font-semibold text-rose-700 dark:text-rose-300">Ошибка</div>
+        <div class="text-rose-600 dark:text-rose-200 text-sm">{{ error }}</div>
+      </div>
     </section>
 
     <!-- CONTENT -->
-    <section v-else-if="task" class="mt-6 grid gap-6 md:grid-cols-3">
-      <!-- LEFT -->
-      <div class="space-y-6 md:col-span-2">
+    <section v-else class="mt-6 grid gap-6 md:grid-cols-3">
+      <!-- Левая колонка -->
+      <div class="md:col-span-2 space-y-6">
         <!-- Описание -->
-        <section class="card">
-          <h2 class="card-title">Описание</h2>
-          <p class="whitespace-pre-line leading-relaxed text-slate-800 dark:text-slate-200">{{ task.description || '—' }}</p>
-        </section>
+        <div class="rounded-2xl border p-4 sm:p-6">
+          <h2 class="mb-3 text-lg font-semibold">Описание</h2>
+          <p class="whitespace-pre-wrap text-slate-700 dark:text-slate-200">
+            {{ task?.description || 'Описание не указано' }}
+          </p>
+        </div>
 
-        <!-- Навыки и категории -->
-        <section class="card">
-          <h2 class="card-title">Навыки и категории</h2>
-          <div class="flex flex-wrap gap-2">
-            <span v-for="(cat, i) in task.categories || []" :key="'cat-'+i" class="tag">{{ cat }}</span>
-            <span v-for="(skill, i) in task.skills || []" :key="'sk-'+i" class="tag">{{ skill }}</span>
-            <span v-if="emptyTags" class="text-sm text-slate-500">—</span>
-          </div>
-        </section>
-
-        <!-- Вложения / Галерея -->
-        <section class="card">
-          <h2 class="card-title">Вложения</h2>
-          <div v-if="task.attachments && task.attachments.length" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <div v-for="file in task.attachments" :key="file.id" class="overflow-hidden rounded-xl border dark:border-slate-700/60">
-              <a :href="file.url" target="_blank" rel="noopener" class="block">
-                <img v-if="isImage(file.url)" :src="file.url" :alt="file.name" class="h-40 w-full object-cover"/>
-                <div v-else class="flex h-40 items-center justify-center text-sm text-slate-500">
-                  {{ file.name }}
-                </div>
-              </a>
-              <div class="border-t p-2 text-xs text-slate-600 dark:text-slate-400 truncate">{{ file.name }}</div>
+        <!-- Владелец: отклики (видно, кто откликнулся) -->
+        <div v-if="isOwner" class="rounded-2xl border p-4 sm:p-6">
+          <div class="mb-4 flex items-center justify-between gap-3">
+            <h2 class="text-lg font-semibold">Отклики исполнителей</h2>
+            <div v-if="stats" class="text-sm text-slate-500 dark:text-slate-400">
+              Всего: <b>{{ stats.total }}</b>
+              • Шорт-лист: <b>{{ stats.shortlisted }}</b>
+              • Принято: <b>{{ stats.accepted }}</b>
             </div>
           </div>
-          <p v-else class="text-sm text-slate-500">Нет вложений</p>
-        </section>
+
+          <div v-if="proposalsLoading" class="text-sm text-slate-500">Загрузка откликов…</div>
+          <div v-else-if="proposalsError" class="text-sm text-rose-600">{{ proposalsError }}</div>
+
+          <template v-else>
+            <div v-if="proposals.length === 0" class="text-sm text-slate-500">Пока нет откликов</div>
+
+            <div
+              v-for="p in proposals"
+              :key="p.id"
+              class="mb-3 rounded-xl border p-3 sm:p-4 hover:shadow-sm transition-shadow"
+            >
+              <div class="flex flex-col gap-3">
+                <!-- Шапка отклика: ИСПОЛНИТЕЛЬ (кто откликнулся) -->
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0 flex items-start gap-3">
+                    <img
+                      :src="avatar(p.executor?.avatar_url)"
+                      alt=""
+                      class="h-10 w-10 rounded-full border object-cover"
+                    />
+                    <div class="min-w-0">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span class="font-semibold truncate">
+                          {{ p.executor?.full_name || `Исполнитель #${p.executor?.id || '—'}` }}
+                        </span>
+                        <span
+                          class="chip"
+                          :class="statusClass(p.status)"
+                          :title="'Статус отклика: ' + statusLabel(p.status)"
+                        >
+                          {{ statusLabel(p.status) }}
+                        </span>
+                        <span v-if="isVerified(p.executor)" class="chip chip--indigo" title="Проверенный исполнитель">✔ Проверен</span>
+                      </div>
+
+                      <div class="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span v-if="p.executor?.rating != null">
+                          ★ {{ toFixedSafe(p.executor?.rating, 1) }} <span class="opacity-60">/ 5</span>
+                        </span>
+                        <span v-if="p.executor?.reviews_count != null">
+                          {{ p.executor.reviews_count }} отзыв(ов)
+                        </span>
+                        <span v-if="p.created_at" :title="isoToLocal(p.created_at)">
+                          подан: {{ dateFromNow(p.created_at) }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="flex shrink-0 items-center gap-2">
+                    <button class="btn ghost" @click="onShortlist(p)" :disabled="actionBusy === p.id">Шорт-лист</button>
+                    <button class="btn primary" @click="onAccept(p)" :disabled="actionBusy === p.id">Принять</button>
+                    <button class="btn danger" @click="onReject(p)" :disabled="actionBusy === p.id">Отклонить</button>
+                  </div>
+                </div>
+
+                <!-- Текст письма -->
+                <div v-if="p.cover_letter" class="text-sm whitespace-pre-wrap text-slate-700 dark:text-slate-200">
+                  {{ p.cover_letter }}
+                </div>
+
+                <!-- Деньги/срок + навыки -->
+                <div class="flex flex-wrap items-center gap-3 text-sm">
+                  <span>Ставка: <b>{{ money(p.bid_amount) }}</b></span>
+                  <span v-if="p.days">• Срок: <b>{{ p.days }} дн.</b></span>
+                  <span v-if="skills(p).length" class="hidden sm:inline">•</span>
+                  <div v-if="skills(p).length" class="flex flex-wrap gap-1">
+                    <span v-for="s in skills(p)" :key="s" class="chip chip--slate text-xs">{{ s }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Исполнитель: мой отклик (создание/редактирование/удаление) -->
+        <div v-if="isExecutor" class="rounded-2xl border p-4 sm:p-6">
+          <h2 class="mb-3 text-lg font-semibold">Мой отклик</h2>
+
+          <div v-if="myProposalLoading" class="text-sm text-slate-500">Проверяем наличие вашего отклика…</div>
+          <div v-else-if="myProposalError" class="text-sm text-rose-600">{{ myProposalError }}</div>
+
+          <template v-else>
+            <!-- уже подан -->
+            <div v-if="myProposal && !editMode" class="space-y-3">
+              <div class="flex flex-wrap items-center gap-2 text-sm">
+                <span>Статус:</span>
+                <span class="chip" :class="statusClass(myProposal.status)">{{ statusLabel(myProposal.status) }}</span>
+                <span v-if="myProposal.updated_at" class="text-slate-500 dark:text-slate-400">
+                  • обновлён: {{ dateFromNow(myProposal.updated_at) }}
+                </span>
+              </div>
+              <div class="text-sm">
+                Ставка: <b>{{ money(myProposal.bid_amount) }}</b>
+                <span v-if="myProposal.days"> • Срок: <b>{{ myProposal.days }} дн.</b></span>
+              </div>
+              <p v-if="myProposal.cover_letter" class="whitespace-pre-wrap text-slate-700 dark:text-slate-200">
+                {{ myProposal.cover_letter }}
+              </p>
+
+              <div class="flex gap-2">
+                <button class="btn ghost" @click="editMode = true">Изменить</button>
+                <button class="btn danger" @click="removeMyProposal" :disabled="actionBusy === myProposal.id">Удалить</button>
+              </div>
+            </div>
+
+            <!-- нет отклика ИЛИ режим редактирования -->
+            <div v-if="!myProposal || editMode" class="space-y-4">
+              <div>
+                <label class="label">Сопроводительное письмо</label>
+                <textarea v-model="form.cover_letter" rows="5" class="input" placeholder="Коротко опишите опыт и подход…"></textarea>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label class="label">Ставка</label>
+                  <input v-model.number="form.bid_amount" type="number" min="0" class="input" placeholder="Напр. 30000" />
+                </div>
+                <div>
+                  <label class="label">Срок (дней)</label>
+                  <input v-model.number="form.days" type="number" min="1" class="input" placeholder="Напр. 7" />
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-3">
+                <button class="btn primary" @click="submitProposal" :disabled="submitBusy">
+                  {{ myProposal ? 'Сохранить изменения' : 'Отправить отклик' }}
+                </button>
+                <span v-if="submitError" class="text-sm text-rose-600">{{ submitError }}</span>
+                <span v-if="submitOk" class="text-sm text-emerald-600">Сохранено</span>
+                <button v-if="editMode" class="btn ghost" @click="cancelEdit" :disabled="submitBusy">Отмена</button>
+              </div>
+            </div>
+          </template>
+        </div>
       </div>
 
-      <!-- RIGHT -->
-      <aside class="space-y-6">
-        <!-- Бюджет (повтор, более подробно) -->
-        <section class="card">
-          <h3 class="card-title">Бюджет</h3>
-          <div class="stat">
-            <div class="stat-label">{{ budgetDisplay.title }}</div>
-            <div class="stat-value">{{ hasBudget ? budgetDisplay.value : '—' }}</div>
-            <div v-if="task.deadline_text" class="stat-hint">Дедлайн: {{ task.deadline_text }} ({{ dlType }})</div>
-          </div>
-        </section>
-
-        <!-- Детали -->
-        <section class="card text-sm">
-          <h3 class="card-title">Детали</h3>
-          <dl class="space-y-2">
-            <div class="row"><dt>Создано</dt><dd>{{ formatDate(task.created_at) }}</dd></div>
-            <div class="row"><dt>Обновлено</dt><dd>{{ formatDate(task.updated_at) }}</dd></div>
-            <div class="row" v-if="task.location"><dt>Локация</dt><dd>{{ task.location }}</dd></div>
-            <div class="row" v-if="task.executor"><dt>Исполнитель</dt><dd>{{ task.executor?.full_name || '—' }}</dd></div>
-            <div class="row" v-if="task.canceled_at"><dt>Отменено</dt><dd>{{ formatDate(task.canceled_at) }}</dd></div>
-            <div class="row" v-if="task.canceled_reason"><dt>Причина</dt><dd class="truncate" :title="task.canceled_reason">{{ task.canceled_reason }}</dd></div>
+      <!-- Правая колонка -->
+      <aside class="space-y-4">
+        <div class="rounded-2xl border p-4 sm:p-6">
+          <h3 class="mb-2 font-semibold">Детали</h3>
+          <dl class="text-sm space-y-2">
+            <div class="flex justify-between"><dt class="text-slate-500">Бюджет</dt><dd>{{ hasBudget ? budgetDisplay.value : '—' }}</dd></div>
+            <div class="flex justify-between"><dt class="text-slate-500">Срочность</dt><dd>{{ task?.urgent ? 'Срочно' : 'Обычная' }}</dd></div>
           </dl>
-        </section>
+        </div>
+
+        <!-- КТО ОТКЛИКНУЛСЯ: компактный список (для владельца) -->
+        <div v-if="isOwner" class="rounded-2xl border p-4 sm:p-6">
+          <div class="mb-2 flex items-center justify-between">
+            <h3 class="font-semibold">Кто откликнулся</h3>
+            <span class="text-xs text-slate-500" v-if="proposals.length">{{ proposals.length }}</span>
+          </div>
+          <div v-if="proposalsLoading" class="text-sm text-slate-500">Загрузка…</div>
+          <div v-else-if="!proposals.length" class="text-sm text-slate-500">Пока пусто</div>
+          <ul v-else class="space-y-2">
+            <li v-for="p in proposals" :key="'mini-'+p.id" class="flex items-center gap-3">
+              <img :src="avatar(p.executor?.avatar_url)" class="h-8 w-8 rounded-full border object-cover" alt="" />
+              <div class="min-w-0">
+                <div class="truncate text-sm font-medium">
+                  {{ p.executor?.full_name || `Исполнитель #${p.executor?.id || '—'}` }}
+                </div>
+                <div class="text-xs text-slate-500">
+                  {{ money(p.bid_amount) }} <span v-if="p.days">• {{ p.days }} дн.</span>
+                </div>
+              </div>
+              <span class="ml-auto chip text-[10px]" :class="statusClass(p.status)">{{ statusLabel(p.status) }}</span>
+            </li>
+          </ul>
+        </div>
       </aside>
     </section>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/userStore'
+import {
+  listProposals,
+  createProposal,
+  updateProposal,
+  deleteProposal,
+  shortlistProposal,
+  acceptProposal,
+  rejectProposal,
+  proposalsStats,
+} from '@/api/proposalsApi'
 
-/* API base */
-const API_BASE = (import.meta?.env?.VITE_API_BASE || 'http://127.0.0.1:8000').replace(/\/$/, '')
-
-/* Route & store */
+/* ==== ROUTER / STORE ==== */
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const jobId = computed(() => Number(route.params.id))
 
-/* Status palette (synced) */
-const STATUS_META = {
-  pending: {
-    label: 'Активно',
-    cls: 'bg-amber-50 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300 ring-1 ring-amber-200/70 dark:ring-amber-400/30'
-  },
-  in_progress: {
-    label: 'В работе',
-    cls: 'bg-indigo-50 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200/70 dark:ring-indigo-400/30'
-  },
-  completed: {
-    label: 'Завершён',
-    cls: 'bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-200/70 dark:ring-emerald-400/30'
-  },
-  canceled_by_executor: {
-    label: 'Отменён исполнителем',
-    cls: 'bg-rose-50 dark:bg-rose-500/15 text-rose-700 dark:text-rose-300 ring-1 ring-rose-200/70 dark:ring-rose-400/30'
-  },
-  canceled_by_customer: {
-    label: 'Архив',
-    cls: 'bg-slate-50 dark:bg-slate-500/15 text-slate-700 dark:text-slate-300 ring-1 ring-slate-200/70 dark:ring-slate-400/30'
-  }
-}
-
-/* State */
+/* ==== TASK LOAD (локально, без зависимости от внешнего слоя) ==== */
+const API_BASE = (import.meta?.env?.VITE_API_BASE || import.meta?.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
 const task = ref(null)
-const loading = ref(false)
+const loading = ref(true)
 const error = ref('')
 
-/* Derived */
-const statusMeta = computed(() => STATUS_META[task.value?.status] || { label: '—', cls: 'bg-slate-100 text-slate-700 ring-1 ring-slate-200 dark:bg-slate-800/50 dark:text-slate-200' })
-const isOwner = computed(() => {
-  const uid = userStore?.user?.id
-  return uid && task.value?.owner_id === uid
-})
-const canEdit = computed(() => ['pending', 'in_progress'].includes(task.value?.status)) // оставил на будущее, но кнопки убраны
-
-/* Бюджет: фикс или диапазон (с валютой) */
-const hasBudget = computed(() => {
-  const t = task.value
-  if (!t) return false
-  if (t.budget_type === 'fixed') return isFinite(+t.budget_fixed)
-  return isFinite(+t.budget_min) || isFinite(+t.budget_max)
-})
-const budgetDisplay = computed(() => {
-  const cur = task.value?.budget_currency || 'RUB'
-  const type = task.value?.budget_type
-  if (type === 'fixed') {
-    const v = task.value?.budget_fixed
-    return { title: 'Фиксированная цена', value: formatMoney(v, cur) }
-  }
-  const min = task.value?.budget_min
-  const max = task.value?.budget_max
-  let value = '—'
-  if (isFinite(+min) && isFinite(+max)) value = `от {{}} до {{}}`.replace('{{}}', formatMoney(min, cur)).replace('{{}}', formatMoney(max, cur))
-  else if (isFinite(+min)) value = `от ${formatMoney(min, cur)}`
-  else if (isFinite(+max)) value = `до ${formatMoney(max, cur)}`
-  return { title: 'Диапазон', value }
-})
-
-const dlType = computed(() => {
-  switch (task.value?.deadline_type) {
-    case 'flexible': return 'гибкий'
-    case 'strict': return 'жёсткий'
-    default: return '—'
-  }
-})
-const emptyTags = computed(() => !((task.value?.categories?.length || 0) + (task.value?.skills?.length || 0)))
-
-/* Utils */
-const getId = () => String(route.params?.id || route.query?.id || '')
-const isImage = (url='') => /\.(png|jpe?g|gif|webp|avif)$/i.test(url)
-const makeAbs = (u) => {
-  if (!u) return ''
-  if (/^https?:\/\//i.test(u)) return u
-  return `${API_BASE}${u.startsWith('/') ? '' : '/'}${u}`
-}
-
-function formatMoney (amount, currency = 'RUB') {
-  if (amount == null || isNaN(Number(amount))) return '—'
-  try { return new Intl.NumberFormat('ru-RU', { style: 'currency', currency, maximumFractionDigits: 0 }).format(Number(amount)) }
-  catch { return `${Number(amount).toLocaleString('ru-RU')} ${currency}` }
-}
-
-function formatDate (value) {
-  if (!value) return '—'
-  try { return new Date(value).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) }
-  catch { return String(value) }
-}
-
-/* Fetch */
-async function fetchTask () {
-  const id = getId()
-  if (!id) { error.value = 'Не передан идентификатор задания.'; return }
+async function fetchTask() {
   loading.value = true
   error.value = ''
   try {
-    const res = await fetch(`${API_BASE}/api/jobs/${id}/`, {
-      headers: { 'Accept': 'application/json', ...(userStore?.access ? { Authorization: `Bearer ${userStore.access}` } : {}) },
-      credentials: 'include'
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const data = await res.json()
-
-    task.value = {
-      id: data.id,
-      title: data.title,
-      description: data.description,
-      status: data.status || (data.is_active ? 'pending' : 'canceled_by_customer'),
-      category: data.category || null,
-      categories: data.categories || (data.category ? [data.category] : []),
-      skills: data.skills || [],
-      attachments: (data.attachments || []).map(f => ({
-        id: f.id,
-        name: f.name || 'файл',
-        url: makeAbs(f.url),
-        uploaded_at: f.uploaded_at || null,
-        size: f.size ?? null
-      })),
-      budget_type: data.budget_type || null,
-      budget_fixed: data.budget_fixed ?? null,
-      budget_min: data.budget_min ?? null,
-      budget_max: data.budget_max ?? null,
-      budget_currency: data.budget_currency || 'RUB',
-      deadline_text: data.deadline || null,
-      deadline_type: data.deadline_type || null,
-      location: data.location || null,
-      remote: !!data.remote,
-      urgent: !!data.urgent,
-      created_at: data.created_at || data.created,
-      updated_at: data.updated_at || data.updated,
-      owner_id: data.owner ?? data.customer?.id ?? null,
-      executor: data.executor || null,
-      canceled_at: data.canceled_at || null,
-      canceled_reason: data.canceled_reason || ''
-    }
+    const res = await fetch(`${API_BASE}/api/jobs/${jobId.value}/`)
+    if (!res.ok) throw new Error('Не удалось получить задание')
+    task.value = await res.json()
   } catch (e) {
-    error.value = e?.message || 'Ошибка сети'
-  } finally { loading.value = false }
+    error.value = e.message || 'Ошибка загрузки'
+  } finally {
+    loading.value = false
+  }
 }
 
-/* Navigation */
-function goBack () { if (window.history.length > 1) router.back(); else router.push({ name: 'MyAssignments' }) }
+/* ==== ROLES ==== */
+const me = computed(() => userStore?.user || null)
+const jobOwnerIds = computed(() => {
+  const j = task.value || {}
+  const raw = j.owner || j.customer || j.user || j.author || j.created_by || j.client || null
+  const u = raw && typeof raw === 'object' ? (raw.id || raw.user_id || raw.pk) : raw
+  return [u].filter(Boolean)
+})
+const isOwner = computed(() => me.value && jobOwnerIds.value.includes(me.value.id))
+const isExecutor = computed(() => me.value && !isOwner.value)
 
-onMounted(fetchTask)
-watch(() => route.params.id, fetchTask)
+/* ==== BUDGET ==== */
+const hasBudget = computed(() => {
+  const j = task.value || {}
+  return j.budget || j.bmin || j.bmax
+})
+const budgetDisplay = computed(() => {
+  const j = task.value || {}
+  const money = (v) => new Intl.NumberFormat('ru-RU').format(Number(v || 0))
+  if (j.budget) return { title: 'Фикс', value: `${money(j.budget)} ₽` }
+  if (j.bmin || j.bmax) return { title: 'Диапазон', value: `${j.bmin ? money(j.bmin) : '—'} — ${j.bmax ? money(j.bmax) : '—'} ₽` }
+  return { title: '', value: '—' }
+})
+
+/* ==== OWNER: PROPOSALS & STATS ==== */
+const proposals = ref([])
+const proposalsLoading = ref(false)
+const proposalsError = ref('')
+const stats = ref(null)
+const actionBusy = ref(null)
+
+async function fetchProposals() {
+  if (!isOwner.value) return
+  proposalsLoading.value = true
+  proposalsError.value = ''
+  try {
+    const data = await listProposals({ job: jobId.value })
+    proposals.value = data || []
+    stats.value = await proposalsStats(jobId.value)
+  } catch (e) {
+    proposalsError.value = e.message || 'Ошибка загрузки откликов'
+  } finally {
+    proposalsLoading.value = false
+  }
+}
+
+async function onShortlist(p) {
+  try {
+    actionBusy.value = p.id
+    await shortlistProposal(p.id)
+    await fetchProposals()
+  } catch (e) {
+    alert(e.message || 'Не удалось добавить в шорт-лист')
+  } finally {
+    actionBusy.value = null
+  }
+}
+async function onAccept(p) {
+  try {
+    actionBusy.value = p.id
+    await acceptProposal(p.id)
+    await fetchProposals()
+  } catch (e) {
+    alert(e.message || 'Не удалось принять отклик')
+  } finally {
+    actionBusy.value = null
+  }
+}
+async function onReject(p) {
+  try {
+    actionBusy.value = p.id
+    await rejectProposal(p.id)
+    await fetchProposals()
+  } catch (e) {
+    alert(e.message || 'Не удалось отклонить отклик')
+  } finally {
+    actionBusy.value = null
+  }
+}
+
+/* ==== EXECUTOR: MY PROPOSAL ==== */
+const myProposal = ref(null)
+const myProposalLoading = ref(false)
+const myProposalError = ref('')
+const editMode = ref(false)
+const form = ref({ cover_letter: '', bid_amount: null, days: null })
+const submitBusy = ref(false)
+const submitError = ref('')
+const submitOk = ref(false)
+
+async function fetchMyProposal() {
+  if (!isExecutor.value) return
+  myProposalLoading.value = true
+  myProposalError.value = ''
+  try {
+    const data = await listProposals({ job: jobId.value })
+    const mine = Array.isArray(data)
+      ? data.find(p => p.job === jobId.value && p.executor?.id === me.value.id)
+      : null
+    myProposal.value = mine || null
+    if (myProposal.value) {
+      form.value = {
+        cover_letter: myProposal.value.cover_letter || '',
+        bid_amount: Number(myProposal.value.bid_amount || 0),
+        days: myProposal.value.days || null,
+      }
+    }
+  } catch (e) {
+    myProposalError.value = e.message || 'Не удалось получить ваш отклик'
+  } finally {
+    myProposalLoading.value = false
+  }
+}
+
+async function submitProposal() {
+  submitBusy.value = true
+  submitError.value = ''
+  submitOk.value = false
+  try {
+    const payload = {
+      job: jobId.value,
+      cover_letter: String(form.value.cover_letter || '').trim(),
+      bid_amount: Number(form.value.bid_amount || 0),
+      days: form.value.days ? Number(form.value.days) : null,
+    }
+    if (myProposal.value) {
+      await updateProposal(myProposal.value.id, payload)
+      editMode.value = false
+    } else {
+      await createProposal(payload)
+    }
+    submitOk.value = true
+    await Promise.all([fetchMyProposal(), fetchProposals()])
+  } catch (e) {
+    submitError.value = e.message || 'Не удалось сохранить отклик'
+  } finally {
+    submitBusy.value = false
+    setTimeout(() => (submitOk.value = false), 1500)
+  }
+}
+
+async function removeMyProposal() {
+  if (!myProposal.value) return
+  if (!confirm('Удалить ваш отклик?')) return
+  try {
+    actionBusy.value = myProposal.value.id
+    await deleteProposal(myProposal.value.id)
+    myProposal.value = null
+    editMode.value = true
+    await fetchProposals()
+  } catch (e) {
+    alert(e.message || 'Не удалось удалить отклик')
+  } finally {
+    actionBusy.value = null
+  }
+}
+
+function cancelEdit() {
+  editMode.value = false
+  if (myProposal.value) {
+    form.value = {
+      cover_letter: myProposal.value.cover_letter || '',
+      bid_amount: Number(myProposal.value.bid_amount || 0),
+      days: myProposal.value.days || null,
+    }
+  }
+}
+
+/* ==== UTILS ==== */
+function goBack() {
+  if (history?.length > 1) router.back()
+  else router.push({ name: 'tasks' })
+}
+function money(v) {
+  return new Intl.NumberFormat('ru-RU').format(Number(v || 0)) + ' ₽'
+}
+function statusLabel(s) {
+  const map = {
+    sent: 'Отправлен',
+    withdrawn: 'Отозван',
+    shortlisted: 'Шорт-лист',
+    accepted: 'Принят',
+    rejected: 'Отклонён',
+  }
+  return map[s] || s
+}
+function statusClass(s) {
+  return {
+    'chip--amber': s === 'sent',
+    'chip--slate': s === 'withdrawn',
+    'chip--indigo': s === 'shortlisted',
+    'chip--emerald': s === 'accepted',
+    'chip--rose': s === 'rejected',
+  }
+}
+
+function avatar(url) {
+  return (url && String(url).trim()) || 'https://api.dicebear.com/7.x/identicon/svg?seed=executor'
+}
+function isVerified(ex) {
+  return Boolean(ex?.verified || ex?.is_verified || ex?.kyc_verified)
+}
+function skills(p) {
+  const s = p?.executor?.skills || p?.skills || []
+  return Array.isArray(s) ? s.slice(0, 6) : []
+}
+function toFixedSafe(num, digits = 1) {
+  const n = Number(num)
+  return Number.isFinite(n) ? n.toFixed(digits) : '—'
+}
+function isoToLocal(iso) {
+  try { return new Date(iso).toLocaleString() } catch { return '' }
+}
+function dateFromNow(iso) {
+  const d = new Date(iso)
+  const diff = (Date.now() - d.getTime()) / 1000
+  if (diff < 60) return 'только что'
+  if (diff < 3600) return `${Math.floor(diff / 60)} мин назад`
+  if (diff < 86400) return `${Math.floor(diff / 3600)} ч назад`
+  return d.toLocaleDateString()
+}
+
+/* ==== LIFECYCLE ==== */
+onMounted(async () => {
+  await fetchTask()
+  if (isOwner.value) {
+    await fetchProposals()
+  } else if (isExecutor.value) {
+    await fetchMyProposal()
+  }
+})
 </script>
 
 <style scoped>
-/* Chips */
-.chip { @apply inline-flex items-center rounded-xl border border-slate-200/80 dark:border-white/10 bg-white/70 dark:bg-slate-900/60 px-2.5 py-1 text-xs text-slate-700 dark:text-slate-200; }
-.chip.warn { @apply border-amber-300/60 bg-amber-50/80 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300; }
-.status-chip { @apply inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm font-medium ring-1; }
+/* простые утилиты под tailwind-классы из проекта */
+.btn-back { @apply text-slate-700 dark:text-slate-200 hover:text-indigo-600 transition; }
+.btn { @apply inline-flex items-center justify-center rounded-xl px-3 py-2 text-sm border; }
+.btn.primary { @apply bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700; }
+.btn.ghost { @apply bg-transparent text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50/60 dark:hover:bg-slate-800/40; }
+.btn.danger { @apply bg-rose-600 text-white border-rose-600 hover:bg-rose-700; }
 
-/* Price in header */
-.price-badge {
-  @apply inline-flex items-center rounded-2xl px-3 py-1.5 text-sm font-semibold
-         border border-emerald-300/70 dark:border-emerald-400/30
-         bg-emerald-50/80 dark:bg-emerald-500/10
-         text-emerald-700 dark:text-emerald-300;
-}
+.chip { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs border; }
+.chip.warn { @apply bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-400/15 dark:text-amber-300; }
+.chip--amber { @apply bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-400/15 dark:text-amber-300; }
+.chip--slate { @apply bg-slate-100 text-slate-700 border-slate-200 dark:border-slate-700 dark:text-slate-300 dark:bg-slate-400/15; }
+.chip--indigo { @apply bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-400/15 dark:text-indigo-300; }
+.chip--emerald { @apply bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-400/15 dark:text-emerald-300; }
+.chip--rose { @apply bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-400/15 dark:text-rose-300; }
 
-/* Buttons */
-.btn-back {
-  @apply rounded-xl px-3 py-2 text-sm
-         border border-indigo-300/60 dark:border-indigo-400/30
-         bg-indigo-50/70 dark:bg-indigo-500/10
-         text-indigo-700 dark:text-indigo-300
-         shadow-[0_0_0_0_rgba(99,102,241,0.0)]
-         hover:shadow-[0_0_0_4px_rgba(99,102,241,0.12)]
-         transition;
-}
-.btn-danger { @apply rounded-xl bg-rose-600 px-3 py-2 text-sm text-white hover:bg-rose-700 transition; }
+.input { @apply w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500/40; }
+.label { @apply mb-1 block text-sm text-slate-600 dark:text-slate-300; }
 
-/* Cards / layout */
-.card { @apply rounded-2xl border border-slate-200/80 dark:border-white/10 bg-white/80 dark:bg-slate-900/60 p-4 sm:p-5 shadow-sm; }
-.card-title { @apply mb-3 text-lg font-semibold; }
-.row { @apply flex items-center justify-between gap-3; }
-.tag { @apply rounded-full border border-slate-200 dark:border-white/10 px-3 py-1 text-xs; }
-
-/* Stat tiles */
-.stat { @apply rounded-xl border border-slate-200/80 dark:border-white/10 bg-white/70 dark:bg-slate-900/60 p-3 shadow-sm; }
-.stat-label { @apply text-xs uppercase tracking-wide text-slate-500; }
-.stat-value { @apply text-xl font-semibold; }
-.stat-hint { @apply text-xs text-slate-500 mt-0.5; }
+.price-badge { @apply inline-flex items-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300 px-2 py-1 text-xs border border-emerald-200; }
 </style>

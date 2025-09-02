@@ -1,7 +1,3 @@
-from django.shortcuts import render
-
-# Create your views here.
-# offer/views.py
 from django.db import transaction
 from django.db.models import Q
 from rest_framework import permissions, status, viewsets
@@ -14,7 +10,8 @@ from .models import Proposal, Assignment, ProposalStatus
 from .serializers import (
     ProposalCreateSerializer,
     ProposalReadSerializer,
-    AssignmentSerializer,
+    ProposalStatusSerializer,
+    AssignmentReadSerializer,
 )
 from .permissions import (
     IsExecutorForCreate,
@@ -26,19 +23,12 @@ from .permissions import (
 
 class ProposalViewSet(viewsets.ModelViewSet):
     """
-    /api/proposals/ — CRUD откликов.
-    - list/retrieve: читают исполнитель (свои) или владелец job (по ?job=ID).
-    - create: только исполнитель; executor берём из request.user.
-    - shortlist/accept/reject: только владелец соответствующего job.
+    list:    Исполнитель — свои отклики; Владелец job — отклики на его задания (через ?job=<id> или ?mine=1)
+    create:  Исполнитель создаёт отклик
+    retrieve/update/destroy: исполнитель-автор; читать также может владелец job
     """
-    queryset = Proposal.objects.select_related("job", "executor").all()
-
-    def get_serializer_class(self):
-        return (
-            ProposalReadSerializer
-            if self.action in ("list", "retrieve")
-            else ProposalCreateSerializer
-        )
+    queryset = Proposal.objects.select_related("job", "executor")
+    serializer_class = ProposalReadSerializer
 
     def get_permissions(self):
         if self.action in ("shortlist", "accept", "reject"):
@@ -49,115 +39,119 @@ class ProposalViewSet(viewsets.ModelViewSet):
         return [permissions.IsAuthenticated(), IsExecutorForCreate()]
 
     def get_queryset(self):
-        qs = Proposal.objects.select_related("job", "executor")
+        qs = super().get_queryset()
         user = self.request.user
         if not user or not user.is_authenticated:
             return qs.none()
 
         job_id = self.request.query_params.get("job")
-
-        # Админам всё
-        if getattr(user, "is_staff", False):
-            return qs.filter(job_id=job_id) if job_id else qs
-
-        role = getattr(user, "role", None)
-
-        # Заказчик видит отклики только на СВОЁ задание (требуем ?job=)
-        if role == "customer":
-            if not job_id:
-                return qs.none()
-            JobModel = Proposal._meta.get_field("job").remote_field.model
+        mine = self.request.query_params.get("mine")
+        # Если передан ?job=<id> и текущий пользователь — владелец этого job, вернём все отклики на него
+        if job_id:
             try:
-                job = JobModel.objects.get(pk=job_id)
+                JobModel = qs.model._meta.get_field("job").remote_field.model  # jobs.Job
+                job = JobModel.objects.select_related().get(pk=job_id)
             except JobModel.DoesNotExist:
-                raise NotFound("Job not found")
-            if get_job_owner(job) != user:
-                raise PermissionDenied("Not your job")
-            return qs.filter(job_id=job_id)
+                return qs.none()
+            if get_job_owner(job) == user:
+                return qs.filter(job_id=job_id)
+            else:
+                # не владелец — видит только свой отклик (если есть)
+                return qs.filter(job_id=job_id, executor=user)
 
-        # Исполнитель (или если поле role отсутствует) — видит только свои отклики
-        return qs.filter(executor=user) if not job_id else qs.filter(executor=user, job_id=job_id)
+        # ?mine=1 — для владельца: все отклики на его задания
+        if mine:
+            # найдём все его job_ids
+            JobModel = qs.model._meta.get_field("job").remote_field.model
+            job_ids = list(JobModel.objects.filter(
+                Q(owner=user) | Q(customer=user) | Q(user=user) | Q(author=user) | Q(created_by=user) | Q(client=user)
+            ).values_list("id", flat=True))
+            return qs.filter(job_id__in=job_ids)
 
-    # ==== Статусные действия (только владелец job) ====
+        # по умолчанию исполнитель видит только свои отклики
+        return qs.filter(executor=user)
 
-    @action(detail=True, methods=["post"])
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return ProposalCreateSerializer
+        return super().get_serializer_class()
+
+    def perform_create(self, serializer):
+        serializer.save()  # executor подставится в serializer.create()
+
+    @action(detail=True, methods=["POST"])
     def shortlist(self, request, pk=None):
-        proposal = self.get_object()  # права проверяются в get_permissions
+        proposal = self.get_object()
+        # проверка владельца job — в IsJobOwnerForStatusActions
         proposal.status = ProposalStatus.SHORTLISTED
         proposal.save(update_fields=["status", "updated_at"])
-        data = ProposalReadSerializer(proposal, context={"request": request}).data
-        return Response(data, status=status.HTTP_200_OK)
+        return Response(ProposalReadSerializer(proposal).data)
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["POST"])
     def reject(self, request, pk=None):
         proposal = self.get_object()
         proposal.status = ProposalStatus.REJECTED
         proposal.save(update_fields=["status", "updated_at"])
-        data = ProposalReadSerializer(proposal, context={"request": request}).data
-        return Response(data, status=status.HTTP_200_OK)
+        return Response(ProposalReadSerializer(proposal).data)
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["POST"])
     def accept(self, request, pk=None):
+        """
+        Акцепт отклика: создаём Assignment (единственный на job), ставим статус ACCEPTED.
+        """
         proposal = self.get_object()
+        job = proposal.job
+
+        # только владелец job
+        if get_job_owner(job) != request.user:
+            raise PermissionDenied("Not your job")
+
         with transaction.atomic():
-            # 1) помечаем отклик как accepted
+            # Один assignment на задачу
+            Assignment.objects.filter(job=job).delete()
+            assignment = Assignment.objects.create(
+                job=job,
+                executor=proposal.executor,
+                proposal=proposal,
+            )
             proposal.status = ProposalStatus.ACCEPTED
             proposal.save(update_fields=["status", "updated_at"])
-            # 2) создаём/обновляем назначение на задачу (единственность по OneToOne)
-            Assignment.objects.update_or_create(
-                job=proposal.job,
-                defaults={"executor": proposal.executor, "proposal": proposal},
-            )
-            # 3) (опционально) остальные отклики по задаче — в rejected
-            Proposal.objects.filter(job=proposal.job).exclude(pk=proposal.pk).update(
-                status=ProposalStatus.REJECTED
-            )
-        data = ProposalReadSerializer(proposal, context={"request": request}).data
-        return Response(data, status=status.HTTP_200_OK)
+        return Response(
+            {
+                "proposal": ProposalReadSerializer(proposal).data,
+                "assignment": AssignmentReadSerializer(assignment).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class AssignmentViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    /api/assignments/ — только чтение.
-    Видит:
-      - назначенный исполнитель (executor),
-      - владелец job,
-      - staff.
-    """
-    serializer_class = AssignmentSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    queryset = Assignment.objects.select_related("job", "executor", "proposal").all()
+    queryset = Assignment.objects.select_related("job", "executor", "proposal")
+    serializer_class = AssignmentReadSerializer
 
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user
-        if getattr(user, "is_staff", False):
-            return qs
-        # назначенный исполнитель
-        q = Q(executor=user)
-
-        # владелец job (пытаемся угадать поле владельца — см. permissions.get_job_owner)
-        JobModel = Proposal._meta.get_field("job").remote_field.model
-        # динамический OR по возможным полям владельца
-        owner_q = Q()
-        for attr in ("customer", "owner", "user", "author", "created_by", "client"):
-            owner_q |= Q(**{f"job__{attr}": user}) | Q(**{f"job__{attr}__user": user})
-        q |= owner_q
-
-        return qs.filter(q).distinct()
+        if not user or not user.is_authenticated:
+            return qs.none()
+        # исполнитель видит свои назначения, владелец job — назначения по его задачам
+        return qs.filter(
+            Q(executor=user) |
+            Q(job__owner=user) | Q(job__customer=user) | Q(job__user=user) |
+            Q(job__author=user) | Q(job__created_by=user) | Q(job__client=user)
+        )
 
 
 class StatsView(APIView):
     """
-    /api/proposals/stats?job=<id> — счётчики по откликам (для бейджей).
-    Доступ: владелец job или staff.
+    GET /api/proposals/stats?job=<id> — агрегаты по откликам для конкретной задачи
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         job_id = request.query_params.get("job")
         if not job_id:
-            return Response({"detail": "Parameter 'job' is required."}, status=400)
+            return Response({"detail": "job is required"}, status=400)
 
         JobModel = Proposal._meta.get_field("job").remote_field.model
         try:
