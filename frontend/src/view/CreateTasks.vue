@@ -29,7 +29,7 @@ const categories = [
 const popularSkills = [
   "Vue 3", "Pinia", "Tailwind", "Vite", "Nuxt",
   "Node.js", "Express", "PostgreSQL", "Figma", "UI/UX",
-  "SEO", "GA4", "TypeScript", "REST", "GraphQL",
+  "SEO", "GA4", "TypeScript", "REST", "GraphQL", 
 ]
 
 /* Данные формы */
@@ -517,23 +517,28 @@ function resetForm() {
                 </div>
 
                 <!-- Дедлайн -->
-                <div class="space-y-2">
-                  <label for="deadline" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Срок выполнения *</label>
-                  <div class="relative">
-                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 2v3M16 2v3M3 9h18M4 7h16a1 1 0 0 1 1 1v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a1 1 0 0 1 1-1z"/>
-                    </svg>
-                    <input
-                      id="deadline"
-                      type="text"
-                      placeholder="Например: 2 недели, 1 месяц, до 15 февраля"
-                      :value="formData.deadline"
-                      @input="updateFormData('deadline', $event.target.value)"
-                      class="pl-9 w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800
-                             px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                    />
-                  </div>
-                </div>
+              <!-- Дедлайн (ползунок) -->
+<div class="space-y-2">
+  <label for="deadline" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+    Срок выполнения (в днях) *
+  </label>
+  <div class="flex items-center space-x-4">
+    <input
+      id="deadline"
+      type="range"
+      min="1"
+      max="60"
+      step="1"
+      :value="formData.deadline"
+      @input="updateFormData('deadline', $event.target.value)"
+      class="w-full accent-indigo-600"
+    />
+    <span class="text-sm text-gray-600 dark:text-gray-300 min-w-[40px] text-right">
+      {{ formData.deadline }} дн.
+    </span>
+  </div>
+</div>
+
 
                 <!-- Тип дедлайна -->
                 <div class="space-y-2">

@@ -1,9 +1,9 @@
 <template>
   <div class="mx-auto max-w-6xl">
     <!-- HERO -->
-    <header class="rounded-2xl border bg-gradient-to-br from-white/85 to-white/40 
-             dark:from-slate-900/70 dark:to-slate-900/30 backdrop-blur 
-             p-4 sm:p-6 ring-1 ring-black/5 dark:ring-white/10 shadow-sm">
+    <header
+      class="rounded-2xl border bg-gradient-to-br from-white/85 to-white/40 dark:from-slate-900/70 dark:to-slate-900/30 backdrop-blur p-4 sm:p-6 ring-1 ring-black/5 dark:ring-white/10 shadow-sm"
+    >
       <div class="mb-4 flex items-center justify-between">
         <button class="btn-back inline-flex items-center gap-2" @click="goBack">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -24,9 +24,7 @@
         <h1 class="text-2xl sm:text-3xl font-semibold leading-tight">
           {{ task?.title || '—' }}
         </h1>
-        <p class="text-slate-600 dark:text-slate-300 text-sm sm:text-base">
-          #{{ task?.id ?? '—' }}
-        </p>
+        <p class="text-slate-600 dark:text-slate-300 text-sm sm:text-base">#{{ task?.id ?? '—' }}</p>
       </div>
     </header>
 
@@ -62,14 +60,16 @@
           </p>
         </div>
 
-        <!-- Владелец: отклики (видно, кто откликнулся) -->
+        <!-- Владелец: отклики (без shortlist и без статуса "отправлен") -->
         <div v-if="isOwner" class="rounded-2xl border p-4 sm:p-6">
           <div class="mb-4 flex items-center justify-between gap-3">
             <h2 class="text-lg font-semibold">Отклики исполнителей</h2>
             <div v-if="stats" class="text-sm text-slate-500 dark:text-slate-400">
               Всего: <b>{{ stats.total }}</b>
-              • Шорт-лист: <b>{{ stats.shortlisted }}</b>
-              • Принято: <b>{{ stats.accepted }}</b>
+              <template v-if="Number(stats.accepted) || Number(stats.rejected)">
+                • Принято: <b>{{ stats.accepted }}</b>
+                • Отклонено: <b>{{ stats.rejected }}</b>
+              </template>
             </div>
           </div>
 
@@ -79,30 +79,46 @@
           <template v-else>
             <div v-if="safeProposals.length === 0" class="text-sm text-slate-500">Пока нет откликов</div>
 
-            <div v-for="(p, index) in safeProposals" :key="p?.id ?? ('p-' + index)"
-              class="mb-3 rounded-xl border p-3 sm:p-4 hover:shadow-sm transition-shadow">
-              <div class="flex flex-col gap-3">
-                <!-- Шапка отклика: кто откликнулся -->
-                <div class="flex items-start justify-between gap-3">
-                  <div class="min-w-0 flex items-start gap-3">
-
+            <div
+              v-for="(p, index) in safeProposals"
+              :key="p?.id ?? ('p-' + index)"
+              class="group mb-3 rounded-2xl border p-4 sm:p-5 transition-all hover:shadow-md"
+            >
+              <div class="flex flex-col gap-4">
+                <!-- Шапка отклика -->
+                <div class="flex items-start justify-between gap-4">
+                  <div class="min-w-0 flex items-center gap-3">
+                    <img
+                      :src="avatarSrc(p.executor?.avatar || p.executor?.avatar_url)"
+                      alt=""
+                      class="h-10 w-10 rounded-full ring-1 ring-black/5 object-cover"
+                      loading="lazy"
+                    />
                     <div class="min-w-0">
                       <div class="flex flex-wrap items-center gap-2">
-                        <span class="font-semibold text-green-700">
-                          {{ p.executor?.full_name
-                            ? p.executor.full_name.toUpperCase()
-                            : ('Исполнитель #' + (p.executor?.id ?? '—')).toUpperCase() }}
+                        <span class="truncate font-semibold text-slate-900 dark:text-slate-100">
+                          {{ p.executor?.full_name || ('Исполнитель #' + (p.executor?.id ?? '—')) }}
                         </span>
-                        <span class="chip" :class="statusClass(p.status)"
-                          :title="'Статус отклика: ' + statusLabel(p.status)">
-                          {{ statusLabel(p.status) }}
-                        </span>
-                        <span v-if="isVerified(p.executor)" class="chip chip--indigo" title="Проверенный исполнитель">✔
-                          Проверен</span>
+                        <span
+                          v-if="isVerified(p.executor)"
+                          class="chip chip--indigo"
+                          title="Проверенный исполнитель"
+                        >✔ Проверен</span>
+
+                        <!-- Показываем бейдж статуса только если это accepted/rejected -->
+                        <span
+                          v-if="p.status === 'accepted'"
+                          class="chip chip--emerald"
+                          title="Отклик принят"
+                        >Принят</span>
+                        <span
+                          v-else-if="p.status === 'rejected'"
+                          class="chip chip--rose"
+                          title="Отклик отклонён"
+                        >Отклонён</span>
                       </div>
 
-                      <div
-                        class="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
                         <span v-if="isFiniteNum(p.executor?.rating)">
                           ★ {{ toFixedSafe(p.executor?.rating, 1) }} <span class="opacity-60">/ 5</span>
                         </span>
@@ -117,13 +133,12 @@
                   </div>
 
                   <div class="flex shrink-0 items-center gap-2">
-                    <button class="btn ghost" @click="onShortlist(p)"
-                      :disabled="actionBusy === p?.id">Шорт-лист</button>
                     <button class="btn primary" @click="onAccept(p)" :disabled="actionBusy === p?.id">Принять</button>
                     <button class="btn danger" @click="onReject(p)" :disabled="actionBusy === p?.id">Отклонить</button>
                   </div>
                 </div>
 
+                <!-- Тело отклика -->
                 <div v-if="p.cover_letter" class="text-sm whitespace-pre-wrap text-slate-700 dark:text-slate-200">
                   {{ p.cover_letter }}
                 </div>
@@ -141,7 +156,7 @@
           </template>
         </div>
 
-        <!-- Исполнитель: мой отклик (создание/редактирование/удаление) -->
+        <!-- Исполнитель: мой отклик (показываем статус только если принят/отклонён) -->
         <div v-if="isExecutor" class="rounded-2xl border p-4 sm:p-6">
           <h2 class="mb-3 text-lg font-semibold">Мой отклик</h2>
 
@@ -152,8 +167,8 @@
             <!-- уже подан -->
             <div v-if="myProposal && !editMode" class="space-y-3">
               <div class="flex flex-wrap items-center gap-2 text-sm">
-                <span>Статус:</span>
-                <span class="chip" :class="statusClass(myProposal.status)">{{ statusLabel(myProposal.status) }}</span>
+                <span v-if="myProposal.status === 'accepted'" class="chip chip--emerald">Принят</span>
+                <span v-else-if="myProposal.status === 'rejected'" class="chip chip--rose">Отклонён</span>
                 <span v-if="myProposal.updated_at" class="text-slate-500 dark:text-slate-400">
                   • обновлён: {{ dateFromNow(myProposal.updated_at) }}
                 </span>
@@ -168,8 +183,9 @@
 
               <div class="flex gap-2">
                 <button class="btn ghost" @click="editMode = true">Изменить</button>
-                <button class="btn danger" @click="removeMyProposal"
-                  :disabled="actionBusy === myProposal?.id">Удалить</button>
+                <button class="btn danger" @click="removeMyProposal" :disabled="actionBusy === myProposal?.id">
+                  Удалить
+                </button>
               </div>
             </div>
 
@@ -177,14 +193,17 @@
             <div v-if="!myProposal || editMode" class="space-y-4">
               <div>
                 <label class="label">Сопроводительное письмо</label>
-                <textarea v-model="form.cover_letter" rows="5" class="input"
-                  placeholder="Коротко опишите опыт и подход…"></textarea>
+                <textarea
+                  v-model="form.cover_letter"
+                  rows="5"
+                  class="input"
+                  placeholder="Коротко опишите опыт и подход…"
+                ></textarea>
               </div>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label class="label">Ставка</label>
-                  <input v-model.number="form.bid_amount" type="number" min="0" class="input"
-                    placeholder="Напр. 30000" />
+                  <input v-model.number="form.bid_amount" type="number" min="0" class="input" placeholder="Напр. 30000" />
                 </div>
                 <div>
                   <label class="label">Срок (дней)</label>
@@ -222,28 +241,53 @@
         </div>
 
         <!-- Кто откликнулся: компактный список -->
-        <div v-if="isOwner" class="rounded-2xl border p-4 sm:p-6">
-          <div class="mb-2 flex items-center justify-between">
-            <h3 class="font-semibold">Кто откликнулся</h3>
-            <span class="text-xs text-slate-500" v-if="safeProposals.length">{{ safeProposals.length }}</span>
-          </div>
-          <div v-if="proposalsLoading" class="text-sm text-slate-500">Загрузка…</div>
-          <div v-else-if="!safeProposals.length" class="text-sm text-slate-500">Пока пусто</div>
-          <ul v-else class="space-y-2">
-            <li v-for="(p, index) in safeProposals" :key="'mini-' + (p?.id ?? index)" class="flex items-center gap-3">
+     <div v-if="isOwner" class="rounded-2xl border p-4 sm:p-6">
+  <div class="mb-2 flex items-center justify-between">
+    <h3 class="font-semibold">Кто откликнулся</h3>
+    <span class="text-xs text-slate-500" v-if="safeProposals.length">{{ safeProposals.length }}</span>
+  </div>
+  <div v-if="proposalsLoading" class="text-sm text-slate-500">Загрузка…</div>
+  <div v-else-if="!safeProposals.length" class="text-sm text-slate-500">Пока пусто</div>
 
-              <div class="min-w-0">
-                <div class="truncate text-sm font-medium">
-                  {{ p.executor?.full_name || ('Исполнитель #' + (p.executor?.id ?? '—')) }}
-                </div>
-                <div class="text-xs text-slate-500">
-                  {{ money(p.bid_amount) }} <span v-if="p.days">• {{ p.days }} дн.</span>
-                </div>
-              </div>
-              <span class="ml-auto chip text-[10px]" :class="statusClass(p.status)">{{ statusLabel(p.status) }}</span>
-            </li>
-          </ul>
+  <ul v-else class="space-y-2">
+    <li
+      v-for="(p, index) in safeProposals"
+      :key="'mini-' + (p?.id ?? index)"
+      class="flex items-center gap-3"
+    >
+      <img
+        :src="avatarSrc(p.executor?.avatar || p.executor?.avatar_url)"
+        alt=""
+        class="h-7 w-7 rounded-full ring-1 ring-black/5 object-cover"
+        loading="lazy"
+      />
+
+      <div class="min-w-0">
+        <div class="truncate text-sm font-medium">
+          {{ p.executor?.full_name || ('Исполнитель #' + (p.executor?.id ?? '—')) }}
         </div>
+        <div class="text-xs text-slate-500">
+          {{ money(p.bid_amount) }} <span v-if="p.days">• {{ p.days }} дн.</span>
+        </div>
+      </div>
+
+      <!-- Кнопка "Посмотреть профиль" -->
+      <button
+        class="btn ghost xs ml-auto"
+        @click="viewExecutorProfile(p.executor?.id)"
+        :disabled="!p?.executor?.id"
+        title="Посмотреть профиль исполнителя"
+      >
+        Посмотреть профиль
+      </button>
+
+      <!-- Финальные статусы (если нужны) -->
+      <span v-if="p.status === 'accepted'" class="chip text-[10px] chip--emerald">Принят</span>
+      <span v-else-if="p.status === 'rejected'" class="chip text-[10px] chip--rose">Отклонён</span>
+    </li>
+  </ul>
+</div>
+
       </aside>
     </section>
   </div>
@@ -258,11 +302,32 @@ import {
   createProposal,
   updateProposal,
   deleteProposal,
-  shortlistProposal,
   acceptProposal,
   rejectProposal,
   proposalsStats,
 } from '@/api/proposalsApi'
+function viewExecutorProfile(id) {
+  if (!id) return
+
+  // если у вас именованные маршруты — попробуем их по очереди
+  const tryByName = (name) => {
+    try {
+      if (typeof router.hasRoute === 'function' && router.hasRoute(name)) {
+        router.push({ name, params: { id } })
+        return true
+      }
+    } catch (_) {}
+    return false
+  }
+  if (tryByName('executor-profile') || tryByName('user-profile') || tryByName('profile')) return
+
+  // Fallback: прямые пути на всякий случай
+  const candidates = [`/executors/${id}`, `/users/${id}`, `/profile/${id}`]
+  for (const path of candidates) {
+    router.push(path)
+    break
+  }
+}
 
 /* ==== ROUTER / STORE ==== */
 const route = useRoute()
@@ -343,18 +408,6 @@ async function fetchProposals() {
   }
 }
 
-async function onShortlist(p) {
-  try {
-    actionBusy.value = p?.id ?? null
-    if (!actionBusy.value) return
-    await shortlistProposal(actionBusy.value)
-    await fetchProposals()
-  } catch (e) {
-    alert(e.message || 'Не удалось добавить в шорт-лист')
-  } finally {
-    actionBusy.value = null
-  }
-}
 async function onAccept(p) {
   try {
     actionBusy.value = p?.id ?? null
@@ -479,25 +532,6 @@ function money(v) {
   const n = Number(v || 0)
   return new Intl.NumberFormat('ru-RU').format(Number.isFinite(n) ? n : 0) + ' ₽'
 }
-function statusLabel(s) {
-  const map = {
-    sent: 'Отправлен',
-    withdrawn: 'Отозван',
-    shortlisted: 'Шорт-лист',
-    accepted: 'Принят',
-    rejected: 'Отклонён',
-  }
-  return map[s] || s
-}
-function statusClass(s) {
-  return {
-    'chip--amber': s === 'sent',
-    'chip--slate': s === 'withdrawn',
-    'chip--indigo': s === 'shortlisted',
-    'chip--emerald': s === 'accepted',
-    'chip--rose': s === 'rejected',
-  }
-}
 function isFiniteNum(v) { return Number.isFinite(Number(v)) }
 
 /* ===== АВАТАРЫ / ПРОФИЛЬ ИСПОЛНИТЕЛЯ ===== */
@@ -517,19 +551,31 @@ function joinUrl(base, path) {
 }
 function avatarSrc(url) {
   if (!url) return placeholderAvatar()
-  const raw = String(url)
+
+  const raw = String(url).trim()
   if (isAbsoluteUrl(raw)) return raw
-  try {
-    const [path, query = ''] = raw.split('?')
-    const encoded = path
-      .split('/')
-      .map(seg => (seg && seg !== 'media' ? encodeURIComponent(seg) : seg))
-      .join('/')
-    const full = joinUrl(API_BASE, encoded) + (query ? `?${query}` : '')
-    return full
-  } catch {
-    return joinUrl(API_BASE, raw)
-  }
+
+  // нормализуем обратные слеши и ведущие ./ или /
+  let path = raw.replace(/\\/g, '/').replace(/^\.?\/+/, '')
+
+  // если прилетает 'avatars/...', добавим media/
+  if (/^avatars\//i.test(path)) path = `media/${path}`
+
+  // разделяем query, не трогаем уже закодированные сегменты
+  const [cleanPath, query = ''] = path.split('?')
+
+  // не пере-кодируем, если сегмент уже содержит %XX
+  const alreadyEncoded = (s) => /%(?:[0-9A-Fa-f]{2})/.test(s)
+
+  const encoded = cleanPath
+    .split('/')
+    .map(seg => {
+      if (!seg || seg.toLowerCase() === 'media') return seg
+      return alreadyEncoded(seg) ? seg : encodeURIComponent(seg)
+    })
+    .join('/')
+
+  return joinUrl(API_BASE, encoded) + (query ? `?${query}` : '')
 }
 
 
@@ -594,10 +640,6 @@ onMounted(async () => {
   @apply bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-400/15 dark:text-amber-300;
 }
 
-.chip--amber {
-  @apply bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-400/15 dark:text-amber-300;
-}
-
 .chip--slate {
   @apply bg-slate-100 text-slate-700 border-slate-200 dark:border-slate-700 dark:text-slate-300 dark:bg-slate-400/15;
 }
@@ -625,4 +667,5 @@ onMounted(async () => {
 .price-badge {
   @apply inline-flex items-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300 px-2 py-1 text-xs border border-emerald-200;
 }
+.btn.xs { @apply px-2 py-1 text-xs rounded-lg; }
 </style>
