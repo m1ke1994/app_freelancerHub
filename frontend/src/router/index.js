@@ -10,14 +10,16 @@ const routes = [
   { path: '/create-task', name: 'create-task', component: () => import('@/view/CreateTasks.vue'), meta: { title: 'Разместить задание', guest: true } },
   { path: '/register', name: 'register', component: () => import('@/view/RegisterPage.vue'), meta: { title: 'Регистрация', guest: true } },
   { path: '/how-it-works', name: 'how-it-works', component: () => import('@/view/HowItWorks.vue'), meta: { title: 'Как это работает', guest: true } },
-{ path: '/jobs/:id', name: 'JobDetails', component: () => import('@/view/TaskDetails.vue') },
+  { path: '/jobs/:id', name: 'JobDetails', component: () => import('@/view/TaskDetails.vue') },
+  { path: '/executor-offer', name: 'ExecutorOffer', component: () => import('@/view/ExecutorOffer.vue'), meta: { title: 'Исполнители', guest: true } },
+
   // приватные
   { path: '/dashboard/profile', name: 'profile', component: () => import('@/view/FreelancerProfile.vue'), meta: { title: 'Профиль фрилансера', auth: true } },
   { path: '/dashboard/customer-profile', name: 'customer-profile', component: () => import('@/view/CustomerProfile.vue'), meta: { title: 'Анкета заказчика', auth: true } },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/view/NotFound.vue'), meta: { title: 'Страница не найдена', guest: true } },
-    { path: '/dashboard/my-tasks', name: 'MyAsignments', component: () => import('@/view/Customer/MyAsignments.vue'), meta: { title: 'мои задания', auth: true } },
-]
+  { path: '/dashboard/my-tasks', name: 'MyAsignments', component: () => import('@/view/Customer/MyAsignments.vue'), meta: { title: 'мои задания', auth: true } },
 
+]
 const router = createRouter({
   history: createWebHistory(),
   routes,

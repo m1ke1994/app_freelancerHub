@@ -241,52 +241,52 @@
         </div>
 
         <!-- Кто откликнулся: компактный список -->
-     <div v-if="isOwner" class="rounded-2xl border p-4 sm:p-6">
-  <div class="mb-2 flex items-center justify-between">
-    <h3 class="font-semibold">Кто откликнулся</h3>
-    <span class="text-xs text-slate-500" v-if="safeProposals.length">{{ safeProposals.length }}</span>
-  </div>
-  <div v-if="proposalsLoading" class="text-sm text-slate-500">Загрузка…</div>
-  <div v-else-if="!safeProposals.length" class="text-sm text-slate-500">Пока пусто</div>
+        <div v-if="isOwner" class="rounded-2xl border p-4 sm:p-6">
+          <div class="mb-2 flex items-center justify-between">
+            <h3 class="font-semibold">Кто откликнулся</h3>
+            <span class="text-xs text-slate-500" v-if="safeProposals.length">{{ safeProposals.length }}</span>
+          </div>
+          <div v-if="proposalsLoading" class="text-sm text-slate-500">Загрузка…</div>
+          <div v-else-if="!safeProposals.length" class="text-sm text-slate-500">Пока пусто</div>
 
-  <ul v-else class="space-y-2">
-    <li
-      v-for="(p, index) in safeProposals"
-      :key="'mini-' + (p?.id ?? index)"
-      class="flex items-center gap-3"
-    >
-      <img
-        :src="avatarSrc(p.executor?.avatar || p.executor?.avatar_url)"
-        alt=""
-        class="h-7 w-7 rounded-full ring-1 ring-black/5 object-cover"
-        loading="lazy"
-      />
+          <ul v-else class="space-y-2">
+            <li
+              v-for="(p, index) in safeProposals"
+              :key="'mini-' + (p?.id ?? index)"
+              class="flex items-center gap-3"
+            >
+              <img
+                :src="avatarSrc(p.executor?.avatar || p.executor?.avatar_url)"
+                alt=""
+                class="h-7 w-7 rounded-full ring-1 ring-black/5 object-cover"
+                loading="lazy"
+              />
 
-      <div class="min-w-0">
-        <div class="truncate text-sm font-medium">
-          {{ p.executor?.full_name || ('Исполнитель #' + (p.executor?.id ?? '—')) }}
+              <div class="min-w-0">
+                <div class="truncate text-sm font-medium">
+                  {{ p.executor?.full_name || ('Исполнитель #' + (p.executor?.id ?? '—')) }}
+                </div>
+                <div class="text-xs text-slate-500">
+                  {{ money(p.bid_amount) }} <span v-if="p.days">• {{ p.days }} дн.</span>
+                </div>
+              </div>
+
+              <!-- Кнопка "Посмотреть профиль" -->
+              <button
+                class="btn ghost xs ml-auto"
+                @click="viewExecutorProfile(p.executor?.id)"
+                :disabled="!p?.executor?.id"
+                title="Посмотреть профиль исполнителя"
+              >
+                Посмотреть профиль
+              </button>
+
+              <!-- Финальные статусы (если нужны) -->
+              <span v-if="p.status === 'accepted'" class="chip text-[10px] chip--emerald">Принят</span>
+              <span v-else-if="p.status === 'rejected'" class="chip text-[10px] chip--rose">Отклонён</span>
+            </li>
+          </ul>
         </div>
-        <div class="text-xs text-slate-500">
-          {{ money(p.bid_amount) }} <span v-if="p.days">• {{ p.days }} дн.</span>
-        </div>
-      </div>
-
-      <!-- Кнопка "Посмотреть профиль" -->
-      <button
-        class="btn ghost xs ml-auto"
-        @click="viewExecutorProfile(p.executor?.id)"
-        :disabled="!p?.executor?.id"
-        title="Посмотреть профиль исполнителя"
-      >
-        Посмотреть профиль
-      </button>
-
-      <!-- Финальные статусы (если нужны) -->
-      <span v-if="p.status === 'accepted'" class="chip text-[10px] chip--emerald">Принят</span>
-      <span v-else-if="p.status === 'rejected'" class="chip text-[10px] chip--rose">Отклонён</span>
-    </li>
-  </ul>
-</div>
 
       </aside>
     </section>
@@ -306,34 +306,24 @@ import {
   rejectProposal,
   proposalsStats,
 } from '@/api/proposalsApi'
-function viewExecutorProfile(id) {
-  if (!id) return
-
-  // если у вас именованные маршруты — попробуем их по очереди
-  const tryByName = (name) => {
-    try {
-      if (typeof router.hasRoute === 'function' && router.hasRoute(name)) {
-        router.push({ name, params: { id } })
-        return true
-      }
-    } catch (_) {}
-    return false
-  }
-  if (tryByName('executor-profile') || tryByName('user-profile') || tryByName('profile')) return
-
-  // Fallback: прямые пути на всякий случай
-  const candidates = [`/executors/${id}`, `/users/${id}`, `/profile/${id}`]
-  for (const path of candidates) {
-    router.push(path)
-    break
-  }
-}
 
 /* ==== ROUTER / STORE ==== */
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const jobId = computed(() => Number(route.params.id))
+
+/* ==== NAV TO EXECUTOR PROFILE (фиксированный алгоритм) ==== */
+function viewExecutorProfile(id) {
+  if (!id) return
+  // 1) пробуем именованный маршрут (рекомендованный способ)
+  if (typeof router.hasRoute === 'function' ? router.hasRoute('executor-offer') : true) {
+    router.push({ name: 'executor-profile', params: { id } })
+    return
+  }
+  // 2) безопасный fallback — прямой путь
+  router.push(`/executors/${id}`)
+}
 
 /* ==== TASK LOAD ==== */
 const API_BASE = (import.meta?.env?.VITE_API_BASE || import.meta?.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
@@ -551,22 +541,12 @@ function joinUrl(base, path) {
 }
 function avatarSrc(url) {
   if (!url) return placeholderAvatar()
-
   const raw = String(url).trim()
   if (isAbsoluteUrl(raw)) return raw
-
-  // нормализуем обратные слеши и ведущие ./ или /
   let path = raw.replace(/\\/g, '/').replace(/^\.?\/+/, '')
-
-  // если прилетает 'avatars/...', добавим media/
   if (/^avatars\//i.test(path)) path = `media/${path}`
-
-  // разделяем query, не трогаем уже закодированные сегменты
   const [cleanPath, query = ''] = path.split('?')
-
-  // не пере-кодируем, если сегмент уже содержит %XX
   const alreadyEncoded = (s) => /%(?:[0-9A-Fa-f]{2})/.test(s)
-
   const encoded = cleanPath
     .split('/')
     .map(seg => {
@@ -574,10 +554,8 @@ function avatarSrc(url) {
       return alreadyEncoded(seg) ? seg : encodeURIComponent(seg)
     })
     .join('/')
-
   return joinUrl(API_BASE, encoded) + (query ? `?${query}` : '')
 }
-
 
 function skills(p) {
   const s = p?.executor?.skills || p?.skills || []
